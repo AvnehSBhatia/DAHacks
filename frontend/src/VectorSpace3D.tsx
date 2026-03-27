@@ -231,9 +231,13 @@ export function VectorSpace3D({
 
     const norm = normalize(frame.points);
     const rawVecs = norm.map((p) => new THREE.Vector3(p.x, p.y, p.z));
-    const unique = dedupeVectors(rawVecs);
     const lastIdx = rawVecs.length - 1;
     const redLast = highlightLastVectorRed && lastIdx >= 0;
+    /** Final corrupted anchor: stick out strongly toward +++ (normalized space ~±1 ball). */
+    if (redLast) {
+      rawVecs[lastIdx]!.add(new THREE.Vector3(1.35, 1.35, 1.35));
+    }
+    const unique = dedupeVectors(rawVecs);
 
     const hullGroup = new THREE.Group();
     scene.add(hullGroup);
