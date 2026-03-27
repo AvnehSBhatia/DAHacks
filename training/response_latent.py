@@ -24,7 +24,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from models.device import select_torch_device
+from models.device import qr_reduced, select_torch_device
 from models.paths import CHECKPOINTS_DIR, ensure_checkpoints_dir
 
 ensure_checkpoints_dir()
@@ -44,7 +44,7 @@ def batched_orthonormal_basis(z: torch.Tensor, W_head: nn.Sequential) -> torch.T
     """z [B,64] -> W [B,384,64] with orthonormal columns (batched QR)."""
     b = z.size(0)
     raw = W_head(z).view(b, DIM, LATENT)
-    w, _ = torch.linalg.qr(raw, mode="reduced")
+    w, _ = qr_reduced(raw)
     return w
 
 

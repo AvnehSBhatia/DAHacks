@@ -42,7 +42,7 @@ from typing import NamedTuple
 import torch
 import torch.nn.functional as F
 
-from .device import autodetect_device_str
+from .device import autodetect_device_str, qr_reduced
 from .sentence_transformer_loader import load_sentence_transformer
 
 Vec = torch.Tensor   # shape [D] — always on CPU, float32, L2-normalised
@@ -660,12 +660,7 @@ class LatentSpace:
             def forward(self, r, z):
                 b = z.size(0)
                 raw = self.W_head(z).view(b, DIM, LATENT)
-                # MPS does not implement linalg.qr; compute on CPU and move back.
-                if raw.device.type == "mps":
-                    W, _ = torch.linalg.qr(raw.cpu(), mode="reduced")
-                    W = W.to(raw.device)
-                else:
-                    W, _ = torch.linalg.qr(raw, mode="reduced")
+                W, _ = qr_reduced(raw)
                 proj = torch.einsum("bd,bdk->bk", r, W)
                 z_out = self.fusion(torch.cat([r, z], dim=-1))
                 return z_out, proj, W
