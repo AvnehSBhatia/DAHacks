@@ -117,6 +117,8 @@ function makeBackgroundTexture(): THREE.CanvasTexture {
 type Props = {
   frame: MorphFrame3D | null;
   frameLabel: string;
+  /** Canvas height in px (match AgentTopology in side-by-side layout). */
+  plotHeight?: number;
 };
 
 /** Persist orbit view across morph steps (same effect re-runs when `frame` changes). */
@@ -125,7 +127,7 @@ const defaultView = {
   target: new THREE.Vector3(0, 0.05, 0),
 };
 
-export function VectorSpace3D({ frame, frameLabel }: Props) {
+export function VectorSpace3D({ frame, frameLabel, plotHeight = 320 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const savedViewRef = useRef(defaultView);
 
@@ -134,7 +136,7 @@ export function VectorSpace3D({ frame, frameLabel }: Props) {
     if (!el || !frame?.points?.length) return;
 
     let w = el.clientWidth || 480;
-    const h = 320;
+    let h = el.clientHeight || plotHeight;
 
     const scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(0x03060c, 0.11);
@@ -370,6 +372,7 @@ export function VectorSpace3D({ frame, frameLabel }: Props) {
     const onResize = () => {
       if (!el) return;
       w = el.clientWidth || 480;
+      h = el.clientHeight || plotHeight;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
@@ -400,14 +403,14 @@ export function VectorSpace3D({ frame, frameLabel }: Props) {
         el.removeChild(renderer.domElement);
       }
     };
-  }, [frame]);
+  }, [frame, plotHeight]);
 
   if (!frame?.points?.length) {
     return (
       <div
         className="viz-3d-empty"
         style={{
-          height: 320,
+          height: plotHeight,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -422,7 +425,10 @@ export function VectorSpace3D({ frame, frameLabel }: Props) {
 
   return (
     <div className="viz-3d-root">
-      <div ref={containerRef} style={{ width: "100%", minHeight: 320 }} />
+      <div
+        ref={containerRef}
+        style={{ width: "100%", height: plotHeight, minHeight: plotHeight }}
+      />
       <p
         className="viz-3d-caption"
         style={{

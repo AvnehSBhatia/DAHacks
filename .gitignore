@@ -2,6 +2,8 @@
 **/__pycache__
 node_modules/
 frontend/dist/
+frontend/tsconfig.tsbuildinfo
+**/tsconfig.tsbuildinfo
 .env
 .env.local
 .venv/

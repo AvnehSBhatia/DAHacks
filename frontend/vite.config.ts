@@ -11,6 +11,9 @@ export default defineConfig(({ mode }) => {
   const domain = e.VITE_AUTH0_DOMAIN || e.AUTH0_DOMAIN || "";
   const audience = e.VITE_AUTH0_AUDIENCE || e.AUTH0_AUDIENCE || "";
   const clientId = e.VITE_AUTH0_CLIENT_ID || e.AUTH0_CLIENT_ID || "";
+  // Default 8000 matches common `uvicorn ... --port 8000`; override with API_PORT in repo .env
+  const apiPort = e.API_PORT || e.VITE_API_PORT || "8000";
+  const apiOrigin = `http://127.0.0.1:${apiPort}`;
 
   return {
     plugins: [react(), basicSsl()],
@@ -24,8 +27,8 @@ export default defineConfig(({ mode }) => {
       host: "127.0.0.1",
       port: 5173,
       proxy: {
-        "/api": "http://127.0.0.1:8000",
-        "/health": "http://127.0.0.1:8000",
+        "/api": apiOrigin,
+        "/health": apiOrigin,
       },
     },
   };

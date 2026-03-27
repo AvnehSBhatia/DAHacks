@@ -113,8 +113,8 @@ For each agent, consider only anchors tagged with that `agent_id`:
 ## Web demo (FastAPI + Vite)
 
 - **API** — `demo/server.py`: `POST /api/demo/run` with JSON `{ "prompt", "context", "num_agents" (default 10), "stagger_s" (default 0.5), "cycles" (default 1) }` runs `demo/latent_demo.py` (real `LatentSpace` + N agents). Between each agent step the server sleeps `stagger_s` seconds (except before the first). Response includes PCA-friendly `morph_frames` / `final_clusters` and **`latent`** with full **64-D** arrays plus `timeline_vectors`.
-- **Port** — Uvicorn on **`127.0.0.1:5005`** (see `demo/run_server.sh`). The Vite dev server proxies `/api` and `/health` to that port (`frontend/vite.config.ts`).
-- **Run** — Terminal 1: `bash demo/run_server.sh` (or `python -m uvicorn demo.server:app --port 5005`). Terminal 2: `cd frontend && npm run dev`.
+- **Port** — Uvicorn on **`127.0.0.1:8000`** by default (override with **`API_PORT`** in repo-root `.env`; must match `frontend/vite.config.ts`). Vite proxies `/api` and `/health` to that port.
+- **Run** — Terminal 1: `bash demo/run_server.sh` (or `python -m uvicorn demo.server:app --reload --host 127.0.0.1 --port 8000`). Terminal 2: `cd frontend && npm run dev`.
 - **UI** — Light *old lace* shell (DM Sans): WebGL field with PCA₃ projection, client-side gravity/decay at `Δt=0.001` (batched per animation frame), GT/base/session markers, hover/click detail panel with weight sparkline, and a dark inset for the 2D cluster chart.
 
 ---

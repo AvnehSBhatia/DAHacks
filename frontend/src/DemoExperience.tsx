@@ -3,6 +3,9 @@ import { AgentTopology } from "./AgentTopology";
 import type { DemoResult } from "./api";
 import { VectorSpace3D } from "./VectorSpace3D";
 
+/** 3D hull and topology share this canvas height so the row aligns. */
+const GRID_PAIR_PLOT_HEIGHT = 320;
+
 type MainTab = "prompt" | "visualization";
 
 type Props = {
@@ -38,6 +41,12 @@ export function DemoExperience({ runDemoFn }: Props) {
   }, [loading]);
 
   const currentMorph = morphFrames[frame] ?? null;
+  const finalClusters = data?.final_clusters ?? null;
+
+  /** 3-node topology only matches ≤3 sequential steps; otherwise leave static. */
+  const stepCount = data?.steps.length ?? 0;
+  const topologySynced = stepCount > 0 && stepCount <= 3;
+  const stepIdx = Math.min(frame, Math.max(0, stepCount - 1));
 
   const onSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -228,10 +237,11 @@ export function DemoExperience({ runDemoFn }: Props) {
                       <p className="section-title" style={{ marginBottom: "0.65rem" }}>
                         SVD Hull Visualizer
                       </p>
-                      <div className="viz-wrap">
+                      <div className="viz-wrap viz-wrap--grid-pair">
                         <VectorSpace3D
                           frame={currentMorph}
                           frameLabel={`T=${frame + 1} // ${morphFrames.length}`}
+                          plotHeight={GRID_PAIR_PLOT_HEIGHT}
                         />
                       </div>
                       <div className="legend">
@@ -269,10 +279,15 @@ export function DemoExperience({ runDemoFn }: Props) {
                       <p className="section-title" style={{ marginBottom: "0.65rem" }}>
                         Node Density Flow
                       </p>
-                      <div className="viz-wrap">
+                      <div className="viz-wrap viz-wrap--grid-pair">
                         <AgentTopology
-                          activeStep={frame}
-                          pulse={data.steps[frame]?.pulse}
+                          activeStep={topologySynced ? stepIdx : -1}
+                          pulse={
+                            topologySynced
+                              ? data.steps[stepIdx]?.pulse
+                              : undefined
+                          }
+                          plotHeight={GRID_PAIR_PLOT_HEIGHT}
                         />
                       </div>
                     </div>

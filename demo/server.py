@@ -3,9 +3,10 @@ Run from repo root (use the project venv so ``torch`` / ``sentence-transformers`
 
   pip install -r demo/requirements.txt
   pip install -r backend/requirements.txt   # if not already
-  python -m uvicorn demo.server:app --reload --host 127.0.0.1 --port 5005
+  python -m uvicorn demo.server:app --reload --host 127.0.0.1 --port 8000
 
-Frontend (``frontend/``) proxies ``/api`` and ``/health`` to this port via ``vite.config.ts``.
+Frontend (``frontend/``) proxies ``/api`` and ``/health`` to ``http://127.0.0.1:${API_PORT}``
+(repo-root ``.env`` ``API_PORT``, default ``8000`` in ``vite.config.ts``).
 """
 
 from __future__ import annotations
@@ -32,7 +33,6 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from demo.demo_logic import run_demo
 from demo.latent_demo import run_latent_demo, stream_latent_demo
 from demo.auth_jwt import get_demo_caller
 
@@ -49,7 +49,7 @@ app.add_middleware(
 class RunBody(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=4000)
     context: str = Field(default="", max_length=4000)
-    num_agents: int = Field(default=10, ge=1, le=32)
+    num_agents: int = Field(default=3, ge=1, le=32)
     stagger_s: float = Field(default=0.5, ge=0.0, le=30.0)
     cycles: int = Field(default=1, ge=1, le=20)
 
@@ -78,7 +78,10 @@ def demo_run(
 
 
 @app.post("/api/demo/stream")
-async def demo_stream(body: RunBody):
+async def demo_stream(
+    body: RunBody,
+    _caller: dict[str, Any] = Depends(get_demo_caller),
+):
     """Server-Sent Events: ``data: {json}\\n\\n`` chunks from ``stream_latent_demo``."""
 
     async def event_bytes():

@@ -1,97 +1,11 @@
-import { useCallback, useState } from "react";
-import { ClusterScatter } from "./ClusterScatter";
-import { runDemoStream, type DemoResult } from "./api";
-import { LatentFieldViz, type InspectInfo } from "./components/LatentFieldViz";
-import { VectorDetailPanel } from "./components/VectorDetailPanel";
 import { useAuth0 } from "@auth0/auth0-react";
+import { useCallback } from "react";
 import { DemoExperience } from "./DemoExperience";
 import { runDemo } from "./api";
 import "./App.css";
 
-export default function App() {
-  const [prompt, setPrompt] = useState(
-    "Explain how photosynthesis relates to atmospheric oxygen.",
-  );
-  const [context, setContext] = useState(
-    "Educational clarity for a high-school audience.",
-  );
-  const [loading, setLoading] = useState(false);
-  const [activeAgent, setActiveAgent] = useState<{ id: string; name: string } | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [data, setData] = useState<DemoResult | null>(null);
-  const [inspect, setInspect] = useState<InspectInfo>(null);
-
-  const onSubmit = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      setErr(null);
-      setLoading(true);
-      setActiveAgent(null);
-      setData(null);
-      setInspect(null);
-      
-      try {
-        const stream = runDemoStream(prompt.trim(), context.trim(), { num_agents: 3 });
-        
-        for await (const event of stream) {
-          if (event.type === "init") {
-            const p = event.payload;
-            setData({
-              prompt: prompt.trim(),
-              context: context.trim(),
-              steps: [],
-              morph_frames: [],
-              final_clusters: { points: [], centroids: [], anomaly_ids: [], explained_variance_ratio: [] },
-              w_frobenius_delta_start: p.w_frobenius_delta_start,
-              w_frobenius_delta_end: p.w_frobenius_delta_start,
-              latent: {
-                dim: 64,
-                session_z: p.session_z,
-                ground_truth: [], // Will be filled
-                base_vector: [], // Will be filled
-                anchors_final: [],
-                timeline_vectors: [],
-                encoder_loaded: true,
-                response_net_loaded: true,
-                num_agents: 3,
-                stagger_s: 0.5,
-                cycles: 1
-              }
-            });
-          } else if (event.type === "thinking") {
-            setActiveAgent({ id: event.agent_id, name: event.agent_name });
-          } else if (event.type === "step") {
-            setActiveAgent(null);
-            setData((prev) => {
-              if (!prev) return prev;
-              return {
-                ...prev,
-                steps: [...prev.steps, event.payload.step],
-                morph_frames: [...prev.morph_frames, event.payload.current_frame],
-                latent: {
-                  ...prev.latent!,
-                  anchors_final: event.payload.latent.anchors_final,
-                  ground_truth: event.payload.latent.ground_truth,
-                }
-              };
-            });
-          } else if (event.type === "complete") {
-            setData(event.payload);
-            setActiveAgent(null);
-          }
-        }
-      } catch (e: unknown) {
-        setErr(e instanceof Error ? e.message : "Request failed");
-        setActiveAgent(null);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [prompt, context],
-  );
-
-  const latent = data?.latent;
-
+function AppWithoutAuth() {
+  const runDemoFn = useCallback((prompt: string) => runDemo(prompt), []);
   return (
     <div className="app">
       <DemoExperience runDemoFn={runDemoFn} />

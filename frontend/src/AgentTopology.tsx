@@ -12,9 +12,13 @@ const AGENTS = [
 export function AgentTopology({
   activeStep,
   pulse,
+  plotHeight = 320,
 }: {
+  /** 0–2 highlights α/β/γ; -1 = none (e.g. run has more than three steps). */
   activeStep: number;
   pulse: { receive: boolean; write: boolean } | undefined;
+  /** Match VectorSpace3D canvas height in side-by-side layout. */
+  plotHeight?: number;
 }) {
   const gid = useId().replace(/:/g, "");
   const hub = { x: 200, y: 138 };
@@ -45,7 +49,13 @@ export function AgentTopology({
       className="agent-topology-svg"
       viewBox="0 0 400 280"
       width="100%"
-      style={{ maxWidth: 400, height: "auto", display: "block", background: "var(--bg-dark)", border: "1px solid var(--accent-soft)" }}
+      height={plotHeight}
+      style={{
+        width: "100%",
+        height: plotHeight,
+        display: "block",
+        maxWidth: "none",
+      }}
       preserveAspectRatio="xMidYMid meet"
     >
       <defs>
