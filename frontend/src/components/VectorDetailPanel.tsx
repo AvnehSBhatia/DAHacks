@@ -2,7 +2,6 @@ import type { SimParticle } from "../lib/latentSim";
 import { decayRateDisplay } from "../lib/latentSim";
 import { cosineSimilarity } from "../lib/mathVec";
 import { MiniSparkline } from "./MiniSparkline";
-import React from "react";
 
 type Props = {
   particle: SimParticle | null;

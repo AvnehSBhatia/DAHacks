@@ -1,19 +1,64 @@
 import { useCallback, useEffect, useState } from "react";
 import { AgentTopology } from "./AgentTopology";
 import type { DemoResult } from "./api";
+import { PipelineStoryboard } from "./PipelineStoryboard";
 import { VectorSpace3D } from "./VectorSpace3D";
 
 /** 3D hull and topology share this canvas height so the row aligns. */
 const GRID_PAIR_PLOT_HEIGHT = 320;
 
-type MainTab = "prompt" | "visualization";
+export type MainTab = "prompt" | "visualization";
 
 type Props = {
   runDemoFn: (prompt: string) => Promise<DemoResult>;
+  /** Parent renders tabs (e.g. auth top bar); state must stay in sync. */
+  liftedTabs?: { mainTab: MainTab; setMainTab: (t: MainTab) => void };
 };
 
-export function DemoExperience({ runDemoFn }: Props) {
-  const [mainTab, setMainTab] = useState<MainTab>("prompt");
+export function MainTabNav({
+  mainTab,
+  onChange,
+}: {
+  mainTab: MainTab;
+  onChange: (t: MainTab) => void;
+}) {
+  return (
+    <nav className="tab-bar" role="tablist" aria-label="Primary">
+      <button
+        type="button"
+        role="tab"
+        id="tab-prompt"
+        aria-selected={mainTab === "prompt"}
+        aria-controls="panel-prompt"
+        tabIndex={mainTab === "prompt" ? 0 : -1}
+        className="tab-btn"
+        onClick={() => onChange("prompt")}
+      >
+        Prompt / Input
+      </button>
+      <button
+        type="button"
+        role="tab"
+        id="tab-visualization"
+        aria-selected={mainTab === "visualization"}
+        aria-controls="panel-visualization"
+        tabIndex={mainTab === "visualization" ? 0 : -1}
+        className="tab-btn"
+        onClick={() => onChange("visualization")}
+      >
+        Visual Analytics
+      </button>
+    </nav>
+  );
+}
+
+export function DemoExperience({ runDemoFn, liftedTabs }: Props) {
+  const [internalTab, setInternalTab] = useState<MainTab>("prompt");
+  const mainTab = liftedTabs ? liftedTabs.mainTab : internalTab;
+  const setMainTab = (t: MainTab) => {
+    if (liftedTabs) liftedTabs.setMainTab(t);
+    else setInternalTab(t);
+  };
   const [prompt, setPrompt] = useState("What is the capital of France?");
   const [loading, setLoading] = useState(false);
   const [initSequence, setInitSequence] = useState<number>(0);
@@ -25,10 +70,17 @@ export function DemoExperience({ runDemoFn }: Props) {
 
   useEffect(() => {
     if (!morphFrames.length) return;
-    const t = setInterval(() => {
-      setFrame((f) => (f + 1) % morphFrames.length);
+    const last = morphFrames.length - 1;
+    const id = window.setInterval(() => {
+      setFrame((f) => {
+        if (f >= last) {
+          window.clearInterval(id);
+          return last;
+        }
+        return f + 1;
+      });
     }, 2200);
-    return () => clearInterval(t);
+    return () => clearInterval(id);
   }, [morphFrames]);
 
   // Handle the fake initialization sequence
@@ -41,12 +93,20 @@ export function DemoExperience({ runDemoFn }: Props) {
   }, [loading]);
 
   const currentMorph = morphFrames[frame] ?? null;
-  const finalClusters = data?.final_clusters ?? null;
 
-  /** 3-node topology only matches ≤3 sequential steps; otherwise leave static. */
   const stepCount = data?.steps.length ?? 0;
-  const topologySynced = stepCount > 0 && stepCount <= 3;
+  /** 3 agents × 3 fixed cycles → 9 steps: rotate highlight α/β/γ via frame % 3. */
+  const threeAgentTripleCycle = stepCount === 9;
+  const topologySynced =
+    (stepCount > 0 && stepCount <= 3) || threeAgentTripleCycle;
+  const activeTopologyStep = threeAgentTripleCycle
+    ? frame % 3
+    : stepCount > 0 && stepCount <= 3
+      ? Math.min(frame, stepCount - 1)
+      : -1;
   const stepIdx = Math.min(frame, Math.max(0, stepCount - 1));
+  const corruptionRevealed =
+    !threeAgentTripleCycle || frame >= stepCount - 1;
 
   const onSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -71,32 +131,7 @@ export function DemoExperience({ runDemoFn }: Props) {
 
   return (
     <>
-      <nav className="tab-bar" role="tablist" aria-label="Primary">
-        <button
-          type="button"
-          role="tab"
-          id="tab-prompt"
-          aria-selected={mainTab === "prompt"}
-          aria-controls="panel-prompt"
-          tabIndex={mainTab === "prompt" ? 0 : -1}
-          className="tab-btn"
-          onClick={() => setMainTab("prompt")}
-        >
-          Prompt / Input
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-visualization"
-          aria-selected={mainTab === "visualization"}
-          aria-controls="panel-visualization"
-          tabIndex={mainTab === "visualization" ? 0 : -1}
-          className="tab-btn"
-          onClick={() => setMainTab("visualization")}
-        >
-          Visual Analytics
-        </button>
-      </nav>
+      {!liftedTabs && <MainTabNav mainTab={mainTab} onChange={setMainTab} />}
 
       {mainTab === "prompt" && (
         <div
@@ -242,6 +277,10 @@ export function DemoExperience({ runDemoFn }: Props) {
                           frame={currentMorph}
                           frameLabel={`T=${frame + 1} // ${morphFrames.length}`}
                           plotHeight={GRID_PAIR_PLOT_HEIGHT}
+                          highlightLastVectorRed={
+                            threeAgentTripleCycle &&
+                            frame === morphFrames.length - 1
+                          }
                         />
                       </div>
                       <div className="legend">
@@ -281,17 +320,30 @@ export function DemoExperience({ runDemoFn }: Props) {
                       </p>
                       <div className="viz-wrap viz-wrap--grid-pair">
                         <AgentTopology
-                          activeStep={topologySynced ? stepIdx : -1}
+                          activeStep={
+                            topologySynced ? activeTopologyStep : -1
+                          }
                           pulse={
                             topologySynced
                               ? data.steps[stepIdx]?.pulse
                               : undefined
                           }
+                          corruptionRevealed={corruptionRevealed}
                           plotHeight={GRID_PAIR_PLOT_HEIGHT}
                         />
                       </div>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="card-inner">
+                  <PipelineStoryboard
+                    data={data}
+                    frame={frame}
+                    morphFrame={currentMorph}
+                  />
                 </div>
               </div>
             </div>

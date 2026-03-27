@@ -12,11 +12,14 @@ const AGENTS = [
 export function AgentTopology({
   activeStep,
   pulse,
+  corruptionRevealed = true,
   plotHeight = 320,
 }: {
   /** 0–2 highlights α/β/γ; -1 = none (e.g. run has more than three steps). */
   activeStep: number;
   pulse: { receive: boolean; write: boolean } | undefined;
+  /** When false, the adversarial node (γ) uses the same styling as α/β until the final frame. */
+  corruptionRevealed?: boolean;
   /** Match VectorSpace3D canvas height in side-by-side layout. */
   plotHeight?: number;
 }) {
@@ -83,23 +86,25 @@ export function AgentTopology({
         </filter>
         <marker
           id={`${gid}-arr-g`}
-          markerWidth="10"
-          markerHeight="10"
-          refX="9"
-          refY="5"
+          markerUnits="userSpaceOnUse"
+          markerWidth="6"
+          markerHeight="6"
+          refX="5.5"
+          refY="3"
           orient="auto"
         >
-          <path d="M0,0 L10,5 L0,10 z" fill="#00ffcc" />
+          <path d="M0,0 L6,3 L0,6 z" fill="#0f6d62" />
         </marker>
         <marker
           id={`${gid}-arr-b`}
-          markerWidth="10"
-          markerHeight="10"
-          refX="9"
-          refY="5"
+          markerUnits="userSpaceOnUse"
+          markerWidth="6"
+          markerHeight="6"
+          refX="5.5"
+          refY="3"
           orient="auto"
         >
-          <path d="M0,0 L10,5 L0,10 z" fill="#00aaff" />
+          <path d="M0,0 L6,3 L0,6 z" fill="#15628c" />
         </marker>
       </defs>
 
@@ -123,10 +128,9 @@ export function AgentTopology({
         y={hub.y - hubH / 2}
         width={hubW}
         height={hubH}
-        fill="rgba(0, 255, 204, 0.05)"
-        stroke="#00ffcc"
-        strokeWidth={1.5}
-        filter={`url(#${gid}-glow)`}
+        fill="rgba(6, 10, 16, 0.96)"
+        stroke="rgba(20, 55, 52, 0.9)"
+        strokeWidth={1.25}
       />
       <text
         x={hub.x}
@@ -159,6 +163,7 @@ export function AgentTopology({
 
       {placed.map((a, i) => {
         const isActive = i === activeStep;
+        const showHalluc = a.halluc && corruptionRevealed;
         const dx = a.ax - hub.x;
         const dy = a.ay - hub.y;
         const len = Math.hypot(dx, dy) || 1;
@@ -174,11 +179,10 @@ export function AgentTopology({
           y: a.ay - uy * (agentSize / 2 + 5),
         };
 
-        const strokeG = isActive ? "#00ffcc" : "rgba(0, 255, 204, 0.2)";
-        const strokeB = isActive ? "#00aaff" : "rgba(0, 170, 255, 0.2)";
-        const sw = isActive ? 2 : 1;
+        const strokeG = isActive ? "#127a6e" : "rgba(18, 122, 110, 0.22)";
+        const strokeB = isActive ? "#1a5f8a" : "rgba(26, 95, 138, 0.22)";
+        const sw = isActive ? 1.25 : 1;
         const op = isActive ? 1 : 0.4;
-        const edgeFilter = isActive ? `url(#${gid}-glow)` : undefined;
 
         const recv = isActive && pulse?.receive;
         const send = isActive && pulse?.write;
@@ -210,7 +214,6 @@ export function AgentTopology({
               strokeWidth={sw}
               opacity={op}
               markerEnd={`url(#${gid}-arr-g)`}
-              filter={edgeFilter}
               strokeDasharray={isActive ? "4 4" : "none"}
             />
             <path
@@ -220,7 +223,6 @@ export function AgentTopology({
               strokeWidth={sw}
               opacity={op}
               markerEnd={`url(#${gid}-arr-b)`}
-              filter={edgeFilter}
               strokeDasharray={isActive ? "4 4" : "none"}
             />
             
@@ -230,7 +232,7 @@ export function AgentTopology({
                  points={`${a.ax},${a.ay - agentSize/2} ${a.ax + agentSize/2},${a.ay} ${a.ax},${a.ay + agentSize/2} ${a.ax - agentSize/2},${a.ay}`}
                  fill="rgba(10, 10, 12, 0.95)"
                  stroke={
-                   a.halluc 
+                   showHalluc
                      ? (isActive ? "#ff0033" : "rgba(255, 0, 51, 0.4)")
                      : (isActive ? "#00ffcc" : "rgba(0, 255, 204, 0.4)")
                  }
@@ -240,7 +242,7 @@ export function AgentTopology({
                  <polygon 
                    points={`${a.ax},${a.ay - agentSize/2 - 4} ${a.ax + agentSize/2 + 4},${a.ay} ${a.ax},${a.ay + agentSize/2 + 4} ${a.ax - agentSize/2 - 4},${a.ay}`}
                    fill="none"
-                   stroke={a.halluc ? "#ff0033" : "#00ffcc"}
+                   stroke={showHalluc ? "#ff0033" : "#00ffcc"}
                    strokeWidth={1}
                    opacity={pulseAnim * 0.5}
                  />
@@ -252,7 +254,7 @@ export function AgentTopology({
               y={a.ay}
               textAnchor="middle"
               dominantBaseline="middle"
-              fill={a.halluc && isActive ? "#ff3366" : "#ffffff"}
+              fill={showHalluc && isActive ? "#ff3366" : "#ffffff"}
               fontSize={14}
               fontFamily="var(--font-mono)"
               fontWeight={700}
@@ -260,7 +262,7 @@ export function AgentTopology({
               {a.label}
             </text>
 
-            {a.halluc && (
+            {showHalluc && (
                <text
                  x={a.ax}
                  y={a.ay + agentSize / 2 + 10}

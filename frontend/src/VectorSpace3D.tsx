@@ -119,6 +119,8 @@ type Props = {
   frameLabel: string;
   /** Canvas height in px (match AgentTopology in side-by-side layout). */
   plotHeight?: number;
+  /** After the final 3×αβγ cycle, color the newest spoke + node red. */
+  highlightLastVectorRed?: boolean;
 };
 
 /** Persist orbit view across morph steps (same effect re-runs when `frame` changes). */
@@ -127,7 +129,12 @@ const defaultView = {
   target: new THREE.Vector3(0, 0.05, 0),
 };
 
-export function VectorSpace3D({ frame, frameLabel, plotHeight = 320 }: Props) {
+export function VectorSpace3D({
+  frame,
+  frameLabel,
+  plotHeight = 320,
+  highlightLastVectorRed = false,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const savedViewRef = useRef(defaultView);
 
@@ -225,6 +232,8 @@ export function VectorSpace3D({ frame, frameLabel, plotHeight = 320 }: Props) {
     const norm = normalize(frame.points);
     const rawVecs = norm.map((p) => new THREE.Vector3(p.x, p.y, p.z));
     const unique = dedupeVectors(rawVecs);
+    const lastIdx = rawVecs.length - 1;
+    const redLast = highlightLastVectorRed && lastIdx >= 0;
 
     const hullGroup = new THREE.Group();
     scene.add(hullGroup);
@@ -233,40 +242,60 @@ export function VectorSpace3D({ frame, frameLabel, plotHeight = 320 }: Props) {
     const materials: THREE.Material[] = [];
     const extraDisposables: { dispose: () => void }[] = [];
 
-    // --- Create Tensor Vectors ---
     const tensorLinesGroup = new THREE.Group();
     hullGroup.add(tensorLinesGroup);
-    
-    const lineMat = new THREE.LineBasicMaterial({
-      color: 0x00ffcc,
+
+    const lineMatCyan = new THREE.LineBasicMaterial({
+      color: 0x66ffe8,
       transparent: true,
-      opacity: 0.8,
+      opacity: 1,
     });
-    materials.push(lineMat);
-    
+    materials.push(lineMatCyan);
+    const lineMatRed = new THREE.LineBasicMaterial({
+      color: 0xff4466,
+      transparent: true,
+      opacity: 1,
+    });
+    materials.push(lineMatRed);
+
+    const nodeMatCyan = new THREE.MeshBasicMaterial({ color: 0x99ffee });
+    materials.push(nodeMatCyan);
+    const nodeMatRed = new THREE.MeshBasicMaterial({ color: 0xff5566 });
+    materials.push(nodeMatRed);
+
     const origin = new THREE.Vector3(0, 0, 0);
-    const lineData: { geo: THREE.BufferGeometry, p: THREE.Vector3, phase: number, speed: number }[] = [];
-    
-    for (const p of unique) {
+    const lineData: {
+      geo: THREE.BufferGeometry;
+      p: THREE.Vector3;
+      phase: number;
+      speed: number;
+    }[] = [];
+
+    for (let i = 0; i < rawVecs.length; i++) {
+      const p = rawVecs[i]!;
+      const isRed = redLast && i === lastIdx;
       const geo = new THREE.BufferGeometry().setFromPoints([origin, p]);
-      const line = new THREE.Line(geo, lineMat);
+      const line = new THREE.Line(
+        geo,
+        isRed ? lineMatRed : lineMatCyan,
+      );
       tensorLinesGroup.add(line);
-      lineData.push({ 
-        geo, 
-        p: p.clone(), 
+      lineData.push({
+        geo,
+        p: p.clone(),
         phase: Math.random() * Math.PI * 2,
-        speed: 1.5 + Math.random() * 2.0
+        speed: 1.5 + Math.random() * 2.0,
       });
       disposables.push(geo);
 
-      // Add a glowing node at the end of the vector
       const nodeGeo = new THREE.BoxGeometry(0.04, 0.04, 0.04);
-      const nodeMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
-      const nodeMesh = new THREE.Mesh(nodeGeo, nodeMat);
+      const nodeMesh = new THREE.Mesh(
+        nodeGeo,
+        isRed ? nodeMatRed : nodeMatCyan,
+      );
       nodeMesh.position.copy(p);
-      line.add(nodeMesh); // Add as child so they move together
+      line.add(nodeMesh);
       disposables.push(nodeGeo);
-      materials.push(nodeMat);
     }
 
     const solidGeom = buildConvexSolidGeometry(unique);
@@ -274,15 +303,16 @@ export function VectorSpace3D({ frame, frameLabel, plotHeight = 320 }: Props) {
       const isBigHull = unique.length >= 4;
 
       const faceMat = new THREE.MeshPhysicalMaterial({
-        color: 0x0066ff,
-        emissive: 0x001133,
-        metalness: 0.8,
-        roughness: 0.1,
+        color: 0x55eeff,
+        emissive: 0x00ccb3,
+        emissiveIntensity: 0.55,
+        metalness: 0.35,
+        roughness: 0.22,
         transparent: true,
-        opacity: isBigHull ? 0.15 : 0.4,
+        opacity: isBigHull ? 0.48 : 0.62,
         side: THREE.DoubleSide,
         depthWrite: !isBigHull,
-        transmission: 0.5,
+        transmission: 0.22,
       });
       materials.push(faceMat);
 
@@ -307,9 +337,9 @@ export function VectorSpace3D({ frame, frameLabel, plotHeight = 320 }: Props) {
         try {
           const wireGeo = new THREE.WireframeGeometry(solidGeom);
           const wireMat = new THREE.LineBasicMaterial({
-            color: 0x00aaff,
+            color: 0x66ffee,
             transparent: true,
-            opacity: 0.5,
+            opacity: 0.92,
           });
           materials.push(wireMat);
           const wireframe = new THREE.LineSegments(wireGeo, wireMat);
@@ -352,8 +382,8 @@ export function VectorSpace3D({ frame, frameLabel, plotHeight = 320 }: Props) {
         
         // Update the child box node position
         const lineMesh = tensorLinesGroup.children[i] as THREE.Line;
-        const nodeMesh = lineMesh.children[0] as THREE.Mesh;
-        nodeMesh.position.set(positions[3], positions[4], positions[5]);
+        const nodeMesh = lineMesh.children[0] as THREE.Mesh | undefined;
+        nodeMesh?.position.set(positions[3], positions[4], positions[5]);
       }
 
       controls.update();
@@ -403,7 +433,7 @@ export function VectorSpace3D({ frame, frameLabel, plotHeight = 320 }: Props) {
         el.removeChild(renderer.domElement);
       }
     };
-  }, [frame, plotHeight]);
+  }, [frame, plotHeight, highlightLastVectorRed]);
 
   if (!frame?.points?.length) {
     return (

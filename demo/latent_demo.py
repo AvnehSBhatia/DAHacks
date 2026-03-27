@@ -124,6 +124,64 @@ GEN_CYCLE: list[Callable[..., str]] = [
 ]
 
 
+def _build_agents_spec(
+    n: int,
+    use_featherless: bool,
+) -> list[tuple[str, str, Any, bool, str]]:
+    """
+    Each entry: ``(agent_id, display_name, generate_fn, hallucination_prone, role_string)``.
+
+    For ``n == 3`` we fix α / β / γ (honest, honest, adversarial) and always run **3** full cycles
+    (α→β→γ repeated three times); the ``cycles`` request field is ignored for that case.
+    """
+    if n == 3:
+        rows: list[tuple[str, str, Any, bool, bool]] = [
+            ("alpha", "Agent α", honest_generate, False, True),
+            ("beta", "Agent β", honest_generate, False, True),
+            ("gamma", "Agent γ", adversarial_generate, True, False),
+        ]
+        out: list[tuple[str, str, Any, bool, str]] = []
+        for i, (aid, display_name, gen_raw, prone, honest_slot) in enumerate(rows):
+            if use_featherless:
+                if honest_slot:
+                    prof = AGENT_PROFILES[i % len(AGENT_PROFILES)]
+                    gen = make_featherless_generate_fn(prof["system"])
+                    role = f"{prof['id']}: {prof['system']}"
+                else:
+                    gen = make_featherless_generate_fn(ADVERSARIAL_SYSTEM)
+                    role = AGENT_ROLES[i % len(AGENT_ROLES)]
+            else:
+                gen = gen_raw
+                role = AGENT_ROLES[i % len(AGENT_ROLES)]
+            out.append((aid, display_name, gen, prone, role))
+        return out
+
+    spec: list[tuple[str, str, Any, bool, str]] = []
+    for i in range(n):
+        gen_raw = GEN_CYCLE[i % len(GEN_CYCLE)]
+        prone = gen_raw in (subtle_adversarial_generate, adversarial_generate)
+        aid = f"agent_{i}"
+
+        if use_featherless:
+            if gen_raw is honest_generate:
+                prof = AGENT_PROFILES[i % len(AGENT_PROFILES)]
+                gen = make_featherless_generate_fn(prof["system"])
+                role = f"{prof['id']}: {prof['system']}"
+            elif gen_raw is subtle_adversarial_generate:
+                gen = make_featherless_generate_fn(SUBTLE_ADVERSARIAL_SYSTEM)
+                role = AGENT_ROLES[i % len(AGENT_ROLES)]
+            else:
+                gen = make_featherless_generate_fn(ADVERSARIAL_SYSTEM)
+                role = AGENT_ROLES[i % len(AGENT_ROLES)]
+        else:
+            gen = gen_raw
+            role = AGENT_ROLES[i % len(AGENT_ROLES)]
+
+        short = role if len(role) <= 52 else f"{role[:48]}…"
+        spec.append((aid, f"Agent {i} — {short}", gen, prone, role))
+    return spec
+
+
 def run_latent_demo(
     prompt: str,
     *,
@@ -131,7 +189,7 @@ def run_latent_demo(
     seed: int = 42,
     num_agents: int = 10,
     stagger_s: float = 0.5,
-    cycles: int = 1,
+    cycles: int = 3,
 ) -> dict[str, Any]:
     """
     Multi-agent loop on shared LatentSpace; returns PCA visuals + full 64-D ``latent`` payload.
@@ -169,32 +227,10 @@ def run_latent_demo(
     n = max(1, min(int(num_agents), 32))
     use_featherless = bool(os.environ.get("FEATHERLESS_API_KEY"))
 
-    agents_spec: list[tuple[str, str, Any, bool]] = []
-    for i in range(n):
-        gen_raw = GEN_CYCLE[i % len(GEN_CYCLE)]
-        prone = gen_raw in (subtle_adversarial_generate, adversarial_generate)
-        aid = f"agent_{i}"
-
-        if use_featherless:
-            if gen_raw is honest_generate:
-                prof = AGENT_PROFILES[i % len(AGENT_PROFILES)]
-                gen = make_featherless_generate_fn(prof["system"])
-                role = f"{prof['id']}: {prof['system']}"
-            elif gen_raw is subtle_adversarial_generate:
-                gen = make_featherless_generate_fn(SUBTLE_ADVERSARIAL_SYSTEM)
-                role = AGENT_ROLES[i % len(AGENT_ROLES)]
-            else:
-                gen = make_featherless_generate_fn(ADVERSARIAL_SYSTEM)
-                role = AGENT_ROLES[i % len(AGENT_ROLES)]
-        else:
-            gen = gen_raw
-            role = AGENT_ROLES[i % len(AGENT_ROLES)]
-
-        short = role if len(role) <= 52 else f"{role[:48]}…"
-        agents_spec.append((aid, f"Agent {i} — {short}", gen, prone))
+    agents_spec = _build_agents_spec(n, use_featherless)
 
     t0 = time.perf_counter()
-    for aid, role, gen, _ in agents_spec:
+    for aid, _display_name, gen, _prone, role in agents_spec:
         network.register(Agent(aid, role, gen))
     _tlog(f"register {n} agents: {time.perf_counter() - t0:.3f}s")
 
@@ -211,7 +247,7 @@ def run_latent_demo(
     w_start = float(torch.norm(space.ground_truth - base_v).item())
 
     gap = max(0.0, float(stagger_s))
-    n_cycles = max(1, int(cycles))
+    n_cycles = 3 if n == 3 else max(1, int(cycles))
     first_step = True
     step_idx = 0
 
@@ -236,7 +272,10 @@ def run_latent_demo(
             t_sv = time.perf_counter()
             sv = _snapshot_full_vectors(space)
             _tlog(f"  snapshot full vectors: {time.perf_counter() - t_sv:.3f}s")
-            meta = next((x for x in agents_spec if x[0] == aid), (aid, aid, None, False))
+            meta = next(
+                (x for x in agents_spec if x[0] == aid),
+                (aid, aid, None, False, ""),
+            )
             steps_out.append(
                 {
                     "agent": {
@@ -329,7 +368,7 @@ async def stream_latent_demo(
     seed: int = 42,
     num_agents: int = 3,
     stagger_s: float = 0.5,
-    cycles: int = 1,
+    cycles: int = 3,
 ) -> AsyncGenerator[str, None]:
     """
     Asynchronous generator version of run_latent_demo.
@@ -357,31 +396,9 @@ async def stream_latent_demo(
     n = max(1, min(int(num_agents), 32))
     use_featherless = bool(os.environ.get("FEATHERLESS_API_KEY"))
 
-    agents_spec = []
-    for i in range(n):
-        gen_raw = GEN_CYCLE[i % len(GEN_CYCLE)]
-        prone = gen_raw in (subtle_adversarial_generate, adversarial_generate)
-        aid = f"agent_{i}"
+    agents_spec = _build_agents_spec(n, use_featherless)
 
-        if use_featherless:
-            if gen_raw is honest_generate:
-                prof = AGENT_PROFILES[i % len(AGENT_PROFILES)]
-                gen = make_featherless_generate_fn(prof["system"])
-                role = f"{prof['id']}: {prof['system']}"
-            elif gen_raw is subtle_adversarial_generate:
-                gen = make_featherless_generate_fn(SUBTLE_ADVERSARIAL_SYSTEM)
-                role = AGENT_ROLES[i % len(AGENT_ROLES)]
-            else:
-                gen = make_featherless_generate_fn(ADVERSARIAL_SYSTEM)
-                role = AGENT_ROLES[i % len(AGENT_ROLES)]
-        else:
-            gen = gen_raw
-            role = AGENT_ROLES[i % len(AGENT_ROLES)]
-
-        short = role if len(role) <= 52 else f"{role[:48]}…"
-        agents_spec.append((aid, f"Agent {i} — {short}", gen, prone))
-
-    for aid, role, gen, _ in agents_spec:
+    for aid, _display_name, gen, _prone, role in agents_spec:
         network.register(Agent(aid, role, gen))
 
     z_session = space.embed_pair_to_latent(prompt, context if context.strip() else prompt)
@@ -402,15 +419,9 @@ async def stream_latent_demo(
         }
     }
     yield f"data: {json.dumps(init_data)}\n\n"
-    
-    # We yield immediately so the frontend has ground truth
-    mem_copy = copy.deepcopy(_anchors_as_viz_rows(space))
-    sv = _snapshot_full_vectors(space)
-    timeline.append(mem_copy)
-    timeline_vectors.append(sv)
 
     gap = max(0.0, float(stagger_s))
-    n_cycles = max(1, int(cycles))
+    n_cycles = 3 if n == 3 else max(1, int(cycles))
     first_step = True
     step_idx = 0
 
@@ -418,8 +429,11 @@ async def stream_latent_demo(
         for aid in order:
             if aid not in network.list_agents():
                 continue
-            
-            meta = next((x for x in agents_spec if x[0] == aid), (aid, aid, None, False))
+
+            meta = next(
+                (x for x in agents_spec if x[0] == aid),
+                (aid, aid, None, False, ""),
+            )
 
             if not first_step and gap > 0:
                 await asyncio.sleep(gap)

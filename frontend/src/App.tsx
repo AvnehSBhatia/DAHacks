@@ -1,6 +1,6 @@
 import { useAuth0 } from "@auth0/auth0-react";
-import { useCallback } from "react";
-import { DemoExperience } from "./DemoExperience";
+import { useCallback, useState } from "react";
+import { DemoExperience, MainTabNav, type MainTab } from "./DemoExperience";
 import { runDemo } from "./api";
 import "./App.css";
 
@@ -40,6 +40,8 @@ function AppWithAuth() {
     [getToken],
   );
 
+  const [mainTab, setMainTab] = useState<MainTab>("prompt");
+
   if (isLoading) {
     return (
       <div className="app app-auth-loading">
@@ -52,7 +54,7 @@ function AppWithAuth() {
 
   if (!isAuthenticated) {
     return (
-      <div className="app">
+      <div className="app app-auth-landing">
         <header className="app-header">
           <p className="app-kicker">DAHacks demo</p>
           <h1 className="app-title">Shared latent memory</h1>
@@ -61,16 +63,14 @@ function AppWithAuth() {
             token with each demo request.
           </p>
         </header>
-        <div className="card card-glow">
-          <div className="card-inner" style={{ textAlign: "center" }}>
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => loginWithRedirect()}
-            >
-              Log in
-            </button>
-          </div>
+        <div className="auth-login-actions">
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => loginWithRedirect()}
+          >
+            Log in
+          </button>
         </div>
       </div>
     );
@@ -78,21 +78,27 @@ function AppWithAuth() {
 
   return (
     <div className="app app-with-auth">
-      <div className="auth-bar" role="region" aria-label="Account">
-        <span className="auth-bar-user" title={user?.sub}>
-          {user?.email ?? user?.name ?? user?.sub}
-        </span>
-        <button
-          type="button"
-          className="btn-secondary auth-bar-logout"
-          onClick={() =>
-            logout({ logoutParams: { returnTo: window.location.origin } })
-          }
-        >
-          Log out
-        </button>
+      <div className="app-top-bar">
+        <MainTabNav mainTab={mainTab} onChange={setMainTab} />
+        <div className="auth-bar" role="region" aria-label="Account">
+          <span className="auth-bar-user" title={user?.sub}>
+            {user?.email ?? user?.name ?? user?.sub}
+          </span>
+          <button
+            type="button"
+            className="btn-secondary auth-bar-logout"
+            onClick={() =>
+              logout({ logoutParams: { returnTo: window.location.origin } })
+            }
+          >
+            Log out
+          </button>
+        </div>
       </div>
-      <DemoExperience runDemoFn={runDemoFn} />
+      <DemoExperience
+        runDemoFn={runDemoFn}
+        liftedTabs={{ mainTab, setMainTab }}
+      />
     </div>
   );
 }

@@ -51,7 +51,7 @@ class RunBody(BaseModel):
     context: str = Field(default="", max_length=4000)
     num_agents: int = Field(default=3, ge=1, le=32)
     stagger_s: float = Field(default=0.5, ge=0.0, le=30.0)
-    cycles: int = Field(default=1, ge=1, le=20)
+    cycles: int = Field(default=3, ge=1, le=20)
 
 
 @app.post("/api/demo/run")

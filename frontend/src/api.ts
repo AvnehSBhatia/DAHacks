@@ -110,7 +110,7 @@ export async function runDemo(
       context,
       num_agents: opts?.num_agents ?? 3,
       stagger_s: opts?.stagger_s ?? 0.5,
-      cycles: opts?.cycles ?? 1,
+      cycles: opts?.cycles ?? 3,
     }),
   });
   if (!res.ok) {
@@ -144,7 +144,7 @@ export async function* runDemoStream(
       context,
       num_agents: opts?.num_agents ?? 3,
       stagger_s: opts?.stagger_s ?? 0.5,
-      cycles: opts?.cycles ?? 1,
+      cycles: opts?.cycles ?? 3,
     }),
   });
 

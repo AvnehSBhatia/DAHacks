@@ -55,6 +55,15 @@ def build_morph_snapshot_3d(
         pad = np.zeros((x3.shape[0], 3 - x3.shape[1]), dtype=np.float64)
         x3 = np.hstack([x3, pad])
 
+    # Demo viz: fan successive anchors so each new write reads as a distinct direction in 3D.
+    for i in range(x3.shape[0]):
+        theta = float(i) * 2.39996322972865332
+        phi = float(i) * 1.618033988749895 * 0.65
+        r = 0.075 + 0.026 * float(i)
+        x3[i, 0] += r * np.cos(theta) * 0.5
+        x3[i, 1] += r * np.sin(theta) * np.cos(phi)
+        x3[i, 2] += r * np.sin(theta) * np.sin(phi)
+
     evr = pca_ref.explained_variance_ratio_.tolist()
     while len(evr) < 3:
         evr.append(0.0)
