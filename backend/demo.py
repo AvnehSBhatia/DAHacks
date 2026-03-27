@@ -106,7 +106,21 @@ def _fmt_context(context_texts: list[str], max_items: int = 4) -> str:
     return "\n".join(f"  • {s[:200]}" for s in snippets)
 
 
-def _featherless_chat(system_prompt: str, user_prompt: str, *, max_tokens: int = 256) -> str | None:
+def _featherless_default_max_tokens() -> int:
+    """Reasoning models need a larger budget than 256 or ``content`` stays empty."""
+    raw = (os.environ.get("FEATHERLESS_MAX_TOKENS") or "2048").strip()
+    try:
+        return max(64, min(int(raw), 128_000))
+    except ValueError:
+        return 2048
+
+
+def _featherless_chat(
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    max_tokens: int | None = None,
+) -> str | None:
     """Call Featherless OpenAI-compatible API only. Returns None on failure."""
     global _last_featherless_error
     _last_featherless_error = None
