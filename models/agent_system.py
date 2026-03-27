@@ -24,7 +24,7 @@ from typing import Callable
 import torch
 import torch.nn.functional as F
 
-from latent_space import Anchor, LatentSpace, RetrievalHit, Vec
+from .latent_space import Anchor, LatentSpace, RetrievalHit, Vec
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -124,6 +124,17 @@ class AgentNetwork:
             raise KeyError(f"Unknown agent: {agent_id}")
         return self._agents[agent_id]
 
+    def remove_agent(self, agent_id: str) -> bool:
+        """Unregister an agent (e.g. after outlier removal). Returns False if missing."""
+        if agent_id not in self._agents:
+            return False
+        del self._agents[agent_id]
+        print(f"[Network] Removed agent '{agent_id}' from this network")
+        return True
+
+    def list_agents(self) -> list[str]:
+        return list(self._agents.keys())
+
     # ══════════════════════════════════════════════════════════════════════════
     # Full interaction loop
     # ══════════════════════════════════════════════════════════════════════════
@@ -208,9 +219,44 @@ class AgentNetwork:
             score=anom_result.distance,
         )
 
+    @dataclass
+    class FinalAnswerResult:
+        agent_id: str
+        output: str
+        weighted_context_lines: list[str]
+        hits: list[RetrievalHit]
+
+    def final_answer_weighted(
+        self,
+        prompt: str,
+        agent_id: str,
+        query_z: Vec,
+        k: int,
+    ) -> "AgentNetwork.FinalAnswerResult":
+        """
+        Retrieve top-k anchors by cosine × decay × impact using query_z, then call
+        the agent with context lines prefixed by retrieval scores (vector-space weights).
+        """
+        agent = self.get_agent(agent_id)
+        hits: list[RetrievalHit] = self.space.retrieve(query_z, k=k, include_anomalies=False)
+        weighted_lines: list[str] = []
+        for h in hits:
+            weighted_lines.append(f"[sim×weight={h.score:.4f} | agent={h.anchor.agent_id}] {h.anchor.text}")
+        output = agent.generate_fn(prompt, weighted_lines)
+        return AgentNetwork.FinalAnswerResult(
+            agent_id=agent_id,
+            output=output,
+            weighted_context_lines=weighted_lines,
+            hits=hits,
+        )
+
     # ══════════════════════════════════════════════════════════════════════════
     # Trust scores
     # ══════════════════════════════════════════════════════════════════════════
+
+    def refresh_trust_scores(self) -> None:
+        """Public alias for periodic trust recomputation (e.g. after outlier removal)."""
+        self._update_trust_scores()
 
     def _update_trust_scores(self) -> None:
         """

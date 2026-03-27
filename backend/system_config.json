@@ -1,0 +1,32 @@
+{
+  "paths": {
+    "encoder": "models/checkpoints/encoder_2x384_to_64.pt",
+    "response_net": "models/checkpoints/response_latent_net.pt"
+  },
+  "session": {
+    "prompt": "Explain how photosynthesis relates to atmospheric oxygen.",
+    "context": "Focus on educational clarity for a high-school audience.",
+    "num_models": 5,
+    "cycles_per_model": 4,
+    "final_retrieval_k": 10,
+    "interaction_retrieval_k": 5,
+    "update_every": 3,
+    "agent_id_prefix": "model",
+    "seed": 42,
+    "base_vector": "You are a reliable multi-agent knowledge system. Provide accurate, factual responses."
+  },
+  "generators": ["honest", "honest", "honest", "subtle", "adversarial"],
+  "personas": [
+    "You are a careful science educator who cites mechanisms and avoids speculation.",
+    "You are a concise technical writer who prefers bullet points and definitions.",
+    "You are a friendly tutor who uses analogies and checks understanding.",
+    "You are a skeptical reviewer who highlights uncertainties and edge cases.",
+    "You are a fast responder who prioritizes brevity and memorable phrases."
+  ],
+  "outliers": {
+    "iqr_factor": 1.5,
+    "min_trust": 0.15,
+    "removal_passes": 2,
+    "bad_actor_threshold": 0.35
+  }
+}

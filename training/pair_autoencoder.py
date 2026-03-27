@@ -4,25 +4,37 @@ Train encoder/decoder on real MiniLM-L6-v2 text embeddings (384-d).
 Encoder input: masked pair only, shape [B, 2, 384] -> flat [B, 768] (2×384).
 Drop positions are set to 0; training still uses a hidden mask only for the loss
 (MAE on dropped coordinates so the model learns to inpaint).
+
+Run from repo root:  python training/pair_autoencoder.py pregenerate
 """
 
 from __future__ import annotations
 
 import argparse
 import random
+import sys
 from pathlib import Path
 from typing import Iterator
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from models.device import select_torch_device
+from models.paths import CHECKPOINTS_DIR, ensure_checkpoints_dir
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from datasets import load_dataset
-from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
+
+from models.sentence_transformer_loader import load_sentence_transformer
 
 # Official sentence-transformers MiniLM v2 — 384-d embeddings
 MINILM_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-DEFAULT_EMBEDDINGS_PATH = Path("minilm_pair_embeddings.pt")
+ensure_checkpoints_dir()
+DEFAULT_EMBEDDINGS_PATH = CHECKPOINTS_DIR / "minilm_pair_embeddings.pt"
 
 DIM = 384
 LATENT = 64
@@ -128,7 +140,7 @@ def pregenerate_embeddings(
     """Run MiniLM on text pairs and save `[N, 2, 384]` to disk (CPU tensor)."""
     out_path = Path(out_path)
     print("Loading MiniLM-L6-v2 …")
-    st = SentenceTransformer(MINILM_MODEL, device=str(device))
+    st = load_sentence_transformer(MINILM_MODEL, str(device))
     print("Loading text (WikiText-2) …")
     lines = load_text_lines()
     print(f"lines: {len(lines)}")
@@ -152,7 +164,9 @@ def load_embedding_pool(path: Path | str) -> torch.Tensor:
     """Load pregenerated `[N, 2, 384]` tensor from `pregenerate_embeddings` output."""
     path = Path(path)
     if not path.is_file():
-        raise FileNotFoundError(f"Embeddings file not found: {path}. Run: python test.py pregenerate")
+        raise FileNotFoundError(
+            f"Embeddings file not found: {path}. Run: python training/pair_autoencoder.py pregenerate"
+        )
     data = torch.load(path, map_location="cpu", weights_only=False)
     emb = data["embeddings"]
     if not isinstance(emb, torch.Tensor):
@@ -227,7 +241,7 @@ def train(
 ) -> tuple[Encoder2x384To64, Decoder64To2x384]:
     torch.manual_seed(seed)
     random.seed(seed)
-    dev = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+    dev = select_torch_device(device)
     pool = pool.to(dev)
 
     encoder = Encoder2x384To64(DIM, LATENT).to(dev)
@@ -257,8 +271,8 @@ def train(
 
 
 def _save_encoder_decoder(enc: Encoder2x384To64, dec: Decoder64To2x384) -> None:
-    enc_path = "encoder_2x384_to_64.pt"
-    dec_path = "decoder_64_to_2x384.pt"
+    enc_path = CHECKPOINTS_DIR / "encoder_2x384_to_64.pt"
+    dec_path = CHECKPOINTS_DIR / "decoder_64_to_2x384.pt"
     torch.save(
         {
             "state_dict": enc.state_dict(),
@@ -285,7 +299,7 @@ def _save_encoder_decoder(enc: Encoder2x384To64, dec: Decoder64To2x384) -> None:
 
 
 if __name__ == "__main__":
-    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dev = select_torch_device()
     parser = argparse.ArgumentParser(description="MiniLM pair embeddings: pregenerate and/or train AE")
     sub = parser.add_subparsers(dest="command", required=True)
 

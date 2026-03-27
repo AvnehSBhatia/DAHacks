@@ -3,23 +3,36 @@ Text-embedding autoencoder: MiniLM-L6-v2 (384-d) -> 64 -> 384.
 
 Pregenerate single-sentence embeddings from WikiText-2, then train with MAE.
 Saves encoder and decoder as separate checkpoints.
+
+Run:  python training/text_autoencoder.py pregenerate
 """
 
 from __future__ import annotations
 
 import argparse
 import random
+import sys
 from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from models.device import select_torch_device
+from models.paths import CHECKPOINTS_DIR, ensure_checkpoints_dir
+
+ensure_checkpoints_dir()
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from datasets import load_dataset
-from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 
+from models.sentence_transformer_loader import load_sentence_transformer
+
 MINILM_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-DEFAULT_EMB_PATH = Path("minilm_text_embeddings_384.pt")
+DEFAULT_EMB_PATH = CHECKPOINTS_DIR / "minilm_text_embeddings_384.pt"
 
 DIM = 384
 LATENT = 64
@@ -105,7 +118,7 @@ def pregenerate_embeddings(
 ) -> torch.Tensor:
     out_path = Path(out_path)
     print("Loading MiniLM-L6-v2 …")
-    st = SentenceTransformer(MINILM_MODEL, device=str(device))
+    st = load_sentence_transformer(MINILM_MODEL, str(device))
     print("Loading text (WikiText-2) …")
     lines = load_text_lines()
     print(f"lines in pool: {len(lines)}")
@@ -128,7 +141,9 @@ def pregenerate_embeddings(
 def load_embeddings(path: Path) -> torch.Tensor:
     path = Path(path)
     if not path.is_file():
-        raise FileNotFoundError(f"Missing {path}. Run: python ae_384_text.py pregenerate")
+        raise FileNotFoundError(
+            f"Missing {path}. Run: python training/text_autoencoder.py pregenerate"
+        )
     data = torch.load(path, map_location="cpu", weights_only=False)
     e = data["embeddings"]
     if e.dim() != 2 or e.size(-1) != DIM:
@@ -202,7 +217,7 @@ def save_two_models(
 
 
 def main() -> None:
-    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dev = select_torch_device()
     p = argparse.ArgumentParser(description="384<->64 text AE (MiniLM embeddings)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -218,8 +233,8 @@ def main() -> None:
     p_tr.add_argument("--batch-size", type=int, default=256)
     p_tr.add_argument("--lr", type=float, default=3e-3)
     p_tr.add_argument("--seed", type=int, default=0)
-    p_tr.add_argument("--encoder-out", type=Path, default=Path("ae_encoder_384_to_64.pt"))
-    p_tr.add_argument("--decoder-out", type=Path, default=Path("ae_decoder_64_to_384.pt"))
+    p_tr.add_argument("--encoder-out", type=Path, default=CHECKPOINTS_DIR / "ae_encoder_384_to_64.pt")
+    p_tr.add_argument("--decoder-out", type=Path, default=CHECKPOINTS_DIR / "ae_decoder_64_to_384.pt")
 
     p_all = sub.add_parser("all", help="Pregenerate then train")
     p_all.add_argument("--out", type=Path, default=DEFAULT_EMB_PATH)
@@ -230,8 +245,8 @@ def main() -> None:
     p_all.add_argument("--batch-size", type=int, default=256)
     p_all.add_argument("--lr", type=float, default=3e-3)
     p_all.add_argument("--seed", type=int, default=0)
-    p_all.add_argument("--encoder-out", type=Path, default=Path("ae_encoder_384_to_64.pt"))
-    p_all.add_argument("--decoder-out", type=Path, default=Path("ae_decoder_64_to_384.pt"))
+    p_all.add_argument("--encoder-out", type=Path, default=CHECKPOINTS_DIR / "ae_encoder_384_to_64.pt")
+    p_all.add_argument("--decoder-out", type=Path, default=CHECKPOINTS_DIR / "ae_decoder_64_to_384.pt")
 
     args = p.parse_args()
 

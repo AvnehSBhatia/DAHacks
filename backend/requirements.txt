@@ -1,2 +1,5 @@
 numpy>=2.1.0
 scikit-learn>=1.5.0
+
+# Latent / cohesive runner (same venv as training): torch, sentence-transformers, datasets, tqdm
+openai>=1.0.0

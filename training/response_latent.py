@@ -8,6 +8,8 @@ that subspace has coordinates proj = W^T r ∈ R^64.
 Loss:
   - Match the network output to that projection (MSE).
   - Align the output with the input latent (1 - cosine similarity).
+
+Run:  python training/response_latent.py --steps 1000
 """
 
 from __future__ import annotations
@@ -15,7 +17,17 @@ from __future__ import annotations
 import argparse
 import signal
 import sys
+from pathlib import Path
 from typing import Any
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from models.device import select_torch_device
+from models.paths import CHECKPOINTS_DIR, ensure_checkpoints_dir
+
+ensure_checkpoints_dir()
 
 import torch
 import torch.nn as nn
@@ -174,7 +186,7 @@ def train_loop(
     out_path: str,
 ) -> ResponseLatentNet:
     torch.manual_seed(seed)
-    dev = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+    dev = select_torch_device(device)
     dtype = torch.float32
 
     r_all, z_all = make_pool(pool_size, pool_seed)
@@ -247,7 +259,7 @@ def main() -> None:
     p.add_argument("--pool-seed", type=int, default=0, help="RNG seed for generating the fixed pool")
     p.add_argument("--val-every", type=int, default=200, help="Run validation every N steps")
     p.add_argument("--val-batch-size", type=int, default=None, help="Val batch size (default: min(batch, val size))")
-    p.add_argument("--out", type=str, default="response_latent_net.pt")
+    p.add_argument("--out", type=str, default=str(CHECKPOINTS_DIR / "response_latent_net.pt"))
     args = p.parse_args()
 
     try:

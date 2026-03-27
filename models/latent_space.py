@@ -41,7 +41,9 @@ from typing import NamedTuple
 
 import torch
 import torch.nn.functional as F
-from sentence_transformers import SentenceTransformer
+
+from .device import autodetect_device_str
+from .sentence_transformer_loader import load_sentence_transformer
 
 Vec = torch.Tensor   # shape [D] — always on CPU, float32, L2-normalised
 
@@ -148,7 +150,7 @@ class LatentSpace:
     stretch_s0              initial stretch for clean anchors (>1 = elongate)
     stretch_k               deformation decay rate (faster than decay_k)
     min_anchors_for_deform  don't deform until GT is stable enough
-    device                  'cpu' or 'cuda'
+    device                  None = autodetect (cuda → mps → cpu), or 'cuda'|'mps'|'cpu'
     """
 
     def __init__(
@@ -166,7 +168,7 @@ class LatentSpace:
         stretch_s0:             float = 1.3,
         stretch_k:              float = 0.015,
         min_anchors_for_deform: int   = 10,
-        device:                 str   = "cpu",
+        device:                 str | None = None,
     ) -> None:
         self.dim                    = dim
         self.eta                    = eta
@@ -178,10 +180,11 @@ class LatentSpace:
         self.stretch_s0             = stretch_s0
         self.stretch_k              = stretch_k
         self.min_anchors_for_deform = min_anchors_for_deform
-        self.device                 = torch.device(device)
+        dev_str = device if device is not None else autodetect_device_str()
+        self.device                 = torch.device(dev_str)
 
-        print("[LatentSpace] Loading MiniLM…")
-        self._st = SentenceTransformer(minilm_model, device=device)
+        print(f"[LatentSpace] Device: {dev_str}  (set TORCH_DEVICE to override)")
+        self._st = load_sentence_transformer(minilm_model, dev_str)
 
         self._encoder      = None
         self._response_net = None
@@ -255,9 +258,9 @@ class LatentSpace:
         ep = self.embed_text(prompt)
         ec = self.embed_text(context)
         if self._encoder is not None:
-            x = torch.stack([ep, ec], dim=0).unsqueeze(0)
+            x = torch.stack([ep, ec], dim=0).unsqueeze(0).to(self.device)
             with torch.no_grad():
-                z = self._encoder(x).squeeze(0)
+                z = self._encoder(x).squeeze(0).cpu()
             return F.normalize(z, dim=0)
         mean_384 = F.normalize((ep + ec) / 2.0, dim=0)
         return self._project_384_to_64(mean_384)
@@ -629,6 +632,7 @@ class LatentSpace:
         enc = _Enc()
         enc.load_state_dict(data["state_dict"])
         enc.eval()
+        enc = enc.to(self.device)
         print(f"[LatentSpace] Loaded encoder from {path}")
         return enc
 
@@ -656,7 +660,12 @@ class LatentSpace:
             def forward(self, r, z):
                 b = z.size(0)
                 raw = self.W_head(z).view(b, DIM, LATENT)
-                W, _ = torch.linalg.qr(raw, mode="reduced")
+                # MPS does not implement linalg.qr; compute on CPU and move back.
+                if raw.device.type == "mps":
+                    W, _ = torch.linalg.qr(raw.cpu(), mode="reduced")
+                    W = W.to(raw.device)
+                else:
+                    W, _ = torch.linalg.qr(raw, mode="reduced")
                 proj = torch.einsum("bd,bdk->bk", r, W)
                 z_out = self.fusion(torch.cat([r, z], dim=-1))
                 return z_out, proj, W
