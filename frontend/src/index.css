@@ -1,34 +1,46 @@
 :root {
-  /* Clean Professional Light Mode */
-  --bg-dark: #f8fafc;
-  --bg-darker: #f1f5f9;
-  --lace: #ffffff;
+  /* Futuristic Boxy Dark Mode */
+  --bg-dark: #0a0a0c;
+  --bg-darker: #050506;
+  --lace: #111114;
   --lace-deep: var(--bg-darker);
-  --lace-muted: #e2e8f0;
-  --ink: #0f172a;
-  --ink-muted: #475569;
-  --ink-faint: #64748b;
-  --accent: #2563eb;
-  --accent-soft: rgba(37, 99, 235, 0.12);
-  --line: #e2e8f0;
-  --line-strong: #cbd5e1;
-  --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-  --card-shadow-hover: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.08);
-  --gt-gold: #f59e0b;
-  --base-slate: #64748b;
-  --session-blue: #3b82f6;
-  --font-sans: "Inter", "Roobert", system-ui, -apple-system, sans-serif;
+  --lace-muted: #1c1c21;
+  
+  --ink: #e0e0e0;
+  --ink-muted: #8b9cb8;
+  --ink-faint: #4b5563;
+  
+  --accent: #00ffcc;
+  --accent-soft: rgba(0, 255, 204, 0.12);
+  --accent-hover: #33ffdb;
+  
+  --line: #222228;
+  --line-strong: #00ffcc;
+  
+  --card-shadow: 0 4px 12px rgba(0, 255, 204, 0.05), inset 0 0 0 1px #222228;
+  --card-shadow-hover: 0 4px 24px rgba(0, 255, 204, 0.15), inset 0 0 0 1px #00ffcc;
+  
+  --gt-gold: #fbbf24;
+  --base-slate: #94a3b8;
+  --session-blue: #38bdf8;
+  
+  /* Strictly Monospace everything for the math feel */
+  --font-sans: "JetBrains Mono", ui-monospace, monospace;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
-  --radius: 12px;
-  --radius-sm: 8px;
-  --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Sharp Corners! */
+  --radius: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  
+  --transition: 0.15s cubic-bezier(0, 0, 0.2, 1);
   --spark-from: #3b82f6;
-  --spark-to: #f59e0b;
+  --spark-to: #00ffcc;
 
   font-family: var(--font-sans);
   line-height: 1.6;
   color: var(--ink);
-  background: var(--lace);
+  background: var(--bg-dark);
   font-feature-settings: "ss01" on, "cv01" on;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -56,12 +68,14 @@ a {
   transition: color var(--transition);
 }
 a:hover {
-  color: #1d4ed8;
+  color: var(--accent-hover);
 }
 
 button {
   font: inherit;
   cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
 }
 
 input,
@@ -70,8 +84,8 @@ textarea {
 }
 
 ::selection {
-  background: rgba(37, 99, 235, 0.25);
-  color: var(--ink);
+  background: rgba(0, 255, 204, 0.25);
+  color: #fff;
 }
 
 .mono {

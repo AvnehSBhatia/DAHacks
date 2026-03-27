@@ -10,6 +10,7 @@ then call the chat API. API key must come from the environment (never commit sec
 Optional:
   export FEATHERLESS_BASE_URL="https://api.featherless.ai/v1"
   export FEATHERLESS_MODEL="Qwen/Qwen3-8B"   # default if unset
+  export FEATHERLESS_MAX_TOKENS=2048           # reasoning models need room beyond default 256
 """
 
 from __future__ import annotations
@@ -134,7 +135,8 @@ def main() -> None:
 
     client = OpenAI(base_url=base_url, api_key=api_key)
 
-    print(f"Featherless: {base_url}  model={model}\n")
+    max_tokens = int(os.environ.get("FEATHERLESS_MAX_TOKENS", "2048"))
+    print(f"Featherless: {base_url}  model={model}  max_tokens={max_tokens}\n")
 
     summary_rows: list[dict] = []
     for prof in AGENT_PROFILES:
@@ -148,8 +150,10 @@ def main() -> None:
                 {"role": "system", "content": prof["system"]},
                 {"role": "user", "content": f"Context: {context}\n\nQuestion: {prompt}"},
             ],
+            max_tokens=max_tokens,
         )
-        text = response.choices[0].message.content or ""
+        msg = response.choices[0].message
+        text = (msg.content or "").strip() or (getattr(msg, "reasoning", None) or "").strip()
 
         print("=" * 60)
         print(f"Agent: {prof['id']}")

@@ -93,18 +93,18 @@ export function LatentFieldViz({
     const height = el.clientHeight || 420;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf8fafc);
-    scene.fog = new THREE.FogExp2(0xf8fafc, 0.042);
+    scene.background = new THREE.Color(0x050506); // Deep space dark
+    scene.fog = new THREE.FogExp2(0x050506, 0.05);
 
-    const camera = new THREE.PerspectiveCamera(48, width / height, 0.08, 120);
-    camera.position.set(2.35, 1.55, 2.5);
+    const camera = new THREE.PerspectiveCamera(50, width / height, 0.08, 120);
+    camera.position.set(2.4, 1.8, 2.7);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(width, height);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.0;
+    renderer.toneMapping = THREE.LinearToneMapping; // Flat look for HUD
+    renderer.toneMappingExposure = 1.2;
     el.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -113,57 +113,55 @@ export function LatentFieldViz({
     controls.maxDistance = 22;
     controls.minDistance = 0.35;
 
-    scene.add(new THREE.HemisphereLight(0xfff8ee, 0x7a6a58, 0.95));
-    const dir = new THREE.DirectionalLight(0xffffff, 0.55);
-    dir.position.set(3.5, 6, 2.5);
+    // Harsh, highly directional neon lighting instead of soft hemispheric light
+    const dir = new THREE.DirectionalLight(0x00ffcc, 1.0);
+    dir.position.set(5, 5, 2);
     scene.add(dir);
-    const fill = new THREE.DirectionalLight(0xe8f0ff, 0.22);
-    fill.position.set(-2, 2, -4);
+    const fill = new THREE.DirectionalLight(0x0066ff, 1.5);
+    fill.position.set(-5, -2, -5);
     scene.add(fill);
+    scene.add(new THREE.AmbientLight(0x111114, 2)); // Low base ambient
 
-    const gtGeom = new THREE.SphereGeometry(0.1, 36, 32);
+    // Boxy, sharp geometries instead of spheres for the nodes
+    const gtGeom = new THREE.BoxGeometry(0.18, 0.18, 0.18);
     const gtMat = new THREE.MeshStandardMaterial({
-      color: 0xc4a574,
-      emissive: 0x5a3d22,
-      emissiveIntensity: 0.45,
-      metalness: 0.12,
-      roughness: 0.38,
+      color: 0xfbbf24,
+      emissive: 0xf59e0b,
+      emissiveIntensity: 0.8,
+      wireframe: true, // Holographic look
     });
     const gtMesh = new THREE.Mesh(gtGeom, gtMat);
     scene.add(gtMesh);
 
-    const baseGeom = new THREE.SphereGeometry(0.062, 22, 18);
+    const baseGeom = new THREE.BoxGeometry(0.12, 0.12, 0.12);
     const baseMesh = new THREE.Mesh(
       baseGeom,
       new THREE.MeshStandardMaterial({
-        color: 0x8a96a8,
-        metalness: 0.1,
-        roughness: 0.48,
+        color: 0x94a3b8,
+        wireframe: true,
       }),
     );
     scene.add(baseMesh);
 
-    const sessGeom = new THREE.SphereGeometry(0.052, 18, 16);
+    const sessGeom = new THREE.BoxGeometry(0.08, 0.08, 0.08);
     const sessMesh = new THREE.Mesh(
       sessGeom,
       new THREE.MeshStandardMaterial({
-        color: 0x5a7a9e,
-        metalness: 0.08,
-        roughness: 0.5,
+        color: 0x38bdf8,
+        emissive: 0x0ea5e9,
+        emissiveIntensity: 0.5,
+        wireframe: true,
       }),
     );
     scene.add(sessMesh);
 
     const nInst = Math.max(8, latent.anchors_final.length);
-    const instGeom = new THREE.SphereGeometry(1, 24, 20);
-    const instMat = new THREE.MeshStandardMaterial({
-      metalness: 0.1,
-      roughness: 0.2,
+    const instGeom = new THREE.BoxGeometry(1, 1, 1); // Box geometric agents
+    const instMat = new THREE.MeshBasicMaterial({ // Flat shaded
       transparent: true,
-      opacity: 0.95,
-      emissive: new THREE.Color(0x000000),
-      emissiveIntensity: 0.0,
+      opacity: 0.9,
       vertexColors: true,
+      wireframe: false,
     });
     const inst = new THREE.InstancedMesh(instGeom, instMat, nInst);
     inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -175,17 +173,17 @@ export function LatentFieldViz({
     scene.add(inst);
 
     /* ── Live coordinate scaffolding: grids + axes + bounding box (lerp-stretched) ── */
-    const gridXZ = new THREE.GridHelper(1, 14, 0x9aa8b8, 0xd8cfc0);
+    const gridXZ = new THREE.GridHelper(1, 20, 0x00ffcc, 0x00ffcc);
     (gridXZ.material as THREE.Material).transparent = true;
-    (gridXZ.material as THREE.Material).opacity = 0.55;
-    const gridXY = new THREE.GridHelper(1, 14, 0xa8b0c0, 0xd0c8bc);
+    (gridXZ.material as THREE.Material).opacity = 0.15;
+    const gridXY = new THREE.GridHelper(1, 20, 0x00aaff, 0x00aaff);
     gridXY.rotation.z = Math.PI / 2;
     (gridXY.material as THREE.Material).transparent = true;
-    (gridXY.material as THREE.Material).opacity = 0.38;
-    const gridYZ = new THREE.GridHelper(1, 14, 0xa8b0c0, 0xd0c8bc);
+    (gridXY.material as THREE.Material).opacity = 0.08;
+    const gridYZ = new THREE.GridHelper(1, 20, 0x00aaff, 0x00aaff);
     gridYZ.rotation.x = Math.PI / 2;
     (gridYZ.material as THREE.Material).transparent = true;
-    (gridYZ.material as THREE.Material).opacity = 0.38;
+    (gridYZ.material as THREE.Material).opacity = 0.08;
 
     const scaffold = new THREE.Group();
     scaffold.add(gridXZ, gridXY, gridYZ);
@@ -193,7 +191,7 @@ export function LatentFieldViz({
 
     const axes = new THREE.AxesHelper(1);
     (axes.material as THREE.Material).transparent = true;
-    (axes.material as THREE.Material).opacity = 0.85;
+    (axes.material as THREE.Material).opacity = 0.6;
     scene.add(axes);
 
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
@@ -201,9 +199,9 @@ export function LatentFieldViz({
     const bboxWire = new THREE.LineSegments(
       boxEdges,
       new THREE.LineBasicMaterial({
-        color: 0x4a6fa5,
+        color: 0x00ffcc,
         transparent: true,
-        opacity: 0.55,
+        opacity: 0.3,
         depthTest: true,
       }),
     );

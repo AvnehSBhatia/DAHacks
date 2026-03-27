@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { AgentTopology } from "./AgentTopology";
-import { ClusterScatter } from "./ClusterScatter";
 import type { DemoResult } from "./api";
 import { VectorSpace3D } from "./VectorSpace3D";
 
@@ -14,6 +13,7 @@ export function DemoExperience({ runDemoFn }: Props) {
   const [mainTab, setMainTab] = useState<MainTab>("prompt");
   const [prompt, setPrompt] = useState("What is the capital of France?");
   const [loading, setLoading] = useState(false);
+  const [initSequence, setInitSequence] = useState<number>(0);
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<DemoResult | null>(null);
   const [frame, setFrame] = useState(0);
@@ -28,14 +28,23 @@ export function DemoExperience({ runDemoFn }: Props) {
     return () => clearInterval(t);
   }, [morphFrames]);
 
+  // Handle the fake initialization sequence
+  useEffect(() => {
+    if (!loading) return;
+    const timer = setInterval(() => {
+      setInitSequence(prev => Math.min(prev + 1, 100));
+    }, 40);
+    return () => clearInterval(timer);
+  }, [loading]);
+
   const currentMorph = morphFrames[frame] ?? null;
-  const finalClusters = data?.final_clusters ?? null;
 
   const onSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
       setErr(null);
       setLoading(true);
+      setInitSequence(0);
       setData(null);
       try {
         const r = await runDemoFn(prompt.trim());
@@ -64,7 +73,7 @@ export function DemoExperience({ runDemoFn }: Props) {
           className="tab-btn"
           onClick={() => setMainTab("prompt")}
         >
-          Prompt
+          Prompt / Input
         </button>
         <button
           type="button"
@@ -76,7 +85,7 @@ export function DemoExperience({ runDemoFn }: Props) {
           className="tab-btn"
           onClick={() => setMainTab("visualization")}
         >
-          Visualization
+          Visual Analytics
         </button>
       </nav>
 
@@ -88,20 +97,20 @@ export function DemoExperience({ runDemoFn }: Props) {
           className="tab-panel"
         >
           <header className="app-header">
-            <p className="app-kicker">DAHacks demo</p>
-            <h1 className="app-title">Shared latent memory</h1>
+            <p className="app-kicker">System OS v0.9</p>
+            <h1 className="app-title">Latent Memory Simulation</h1>
             <p className="app-lede">
-              Three agents run in sequence on the same vector memory and latent matrix{" "}
-              <code>W</code>. Agent γ is tuned to hallucinate—watch clusters and anomalies.
+              Initialize a vector generation sequence. The engine orchestrates autonomous agents
+              to map semantic tensors against a baseline metric axis.
             </p>
           </header>
 
-          <div className="card card-glow">
+          <div className="card">
             <div className="card-inner">
-              <p className="section-title">Prompt</p>
+              <p className="section-title">Calibration Target</p>
               <form onSubmit={onSubmit}>
                 <label className="form-label" htmlFor="p">
-                  Grounded question (try France, speed of light, or boiling water)
+                  Topic Prompt
                 </label>
                 <textarea
                   id="p"
@@ -109,16 +118,15 @@ export function DemoExperience({ runDemoFn }: Props) {
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   rows={3}
-                  placeholder="Ask something answerable from the seeded corpus…"
+                  placeholder="Enter input parameters..."
                 />
-                <div style={{ marginTop: "1rem" }}>
+                <div style={{ marginTop: "1.2rem" }}>
                   <button
                     type="submit"
                     className="btn-primary"
                     disabled={loading || !prompt.trim()}
                   >
-                    {loading && <span className="btn-spinner" aria-hidden />}
-                    {loading ? "Running pipeline…" : "Run demo"}
+                    {loading ? "Initializing..." : "Execute Simulation Sequence"}
                   </button>
                 </div>
               </form>
@@ -127,8 +135,30 @@ export function DemoExperience({ runDemoFn }: Props) {
 
           {err && (
             <p className="alert-error" style={{ marginTop: "1.25rem" }} role="alert">
-              {err}
+              [CRITICAL ERROR] {err}
             </p>
+          )}
+
+          {loading && (
+             <div className="card" style={{ marginTop: "1.25rem", border: "1px solid var(--accent)", boxShadow: "0 0 20px rgba(0, 255, 204, 0.1)" }}>
+               <div className="card-inner">
+                  <p className="section-title">System Boot Process</p>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: "0.85rem", color: "var(--accent)" }}>
+                    <div>{`[+] Allocating tensor buffers... ${initSequence}%`}</div>
+                    <div style={{ opacity: initSequence > 15 ? 1 : 0 }}>{`[+] Loading Encoder2x384To64 weights...`}</div>
+                    <div style={{ opacity: initSequence > 35 ? 1 : 0 }}>{`[+] Normalizing Base Vector = normalize(avg(Embed(P)))`}</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: "2px", margin: "10px 0", color: "#666", fontSize: "0.6rem", opacity: initSequence > 50 ? 1 : 0 }}>
+                       {Array(64).fill(0).map((_, i) => <span key={i}>{(Math.random() * 2 - 1).toFixed(4)}</span>)}
+                    </div>
+                    <div style={{ opacity: initSequence > 70 ? 1 : 0 }}>{`[+] Waking 3 Agents for iterative thought pipeline...`}</div>
+                    <div style={{ opacity: initSequence > 90 ? 1 : 0 }}>{`[+] Connection established. Awaiting LLM response chunk.`}</div>
+                    
+                    <div style={{ marginTop: "1rem", height: "4px", background: "var(--line)", width: "100%", overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${initSequence}%`, background: "var(--accent)", transition: "width 0.1s linear" }} />
+                    </div>
+                  </div>
+               </div>
+             </div>
           )}
         </div>
       )}
@@ -141,17 +171,17 @@ export function DemoExperience({ runDemoFn }: Props) {
           className="tab-panel"
         >
           <header className="app-header" style={{ marginBottom: "1.25rem" }}>
-            <p className="app-kicker">Results</p>
+            <p className="app-kicker">Diagnostics Console</p>
             <h1 className="app-title" style={{ fontSize: "clamp(1.25rem, 3vw, 1.65rem)" }}>
-              Visualization
+              Data Topology Map
             </h1>
             {data ? (
-              <p className="app-lede" style={{ fontSize: "0.92rem" }}>
-                Prompt: <q>{data.prompt}</q>
+              <p className="app-lede" style={{ fontSize: "0.92rem", color: "var(--accent)" }}>
+                &gt; Sequence run: <q>{data.prompt}</q>
               </p>
             ) : (
               <p className="app-lede">
-                Run a prompt first—charts appear here after each demo.
+                System awaiting input vector on Prompt screen.
               </p>
             )}
           </header>
@@ -159,13 +189,13 @@ export function DemoExperience({ runDemoFn }: Props) {
           {!data && (
             <div className="card">
               <div className="card-inner empty-viz">
-                <p>No run yet. Submit a question on the Prompt tab.</p>
+                <p>Telemetry offline. Provide initial parameters.</p>
                 <button
                   type="button"
                   className="btn-secondary"
                   onClick={() => setMainTab("prompt")}
                 >
-                  Go to Prompt
+                  Return to Input
                 </button>
               </div>
             </div>
@@ -175,17 +205,10 @@ export function DemoExperience({ runDemoFn }: Props) {
             <div className="results-stack">
               <div className="card">
                 <div className="card-inner">
-                  <p className="section-title">Live visualization</p>
-                  <h2 className="section-heading">3D latent shape & agent topology</h2>
+                  <p className="section-title">Telemetry Stream</p>
+                  <h2 className="section-heading">Multi-Agent State Trajectory</h2>
                   <p className="section-desc">
-                    Left: each point is a{" "}
-                    <strong>{currentMorph?.embed_dim ?? 64}D</strong> memory vector after{" "}
-                    <code>W·x</code>, shown in <strong>3 PCA dimensions</strong> (not
-                    K-means). Frame advances automatically.{" "}
-                    <code>
-                      ‖W − I‖_F: {data.w_frobenius_delta_start.toFixed(3)} →{" "}
-                      {data.w_frobenius_delta_end.toFixed(3)}
-                    </code>
+                    Matrix decomposition over time. The 64D manifold is projected to 3 PCA dimensions.
                   </p>
                   <div className="frame-pills" role="tablist" aria-label="Morph frames">
                     {morphFrames.map((_, i) => (
@@ -193,21 +216,22 @@ export function DemoExperience({ runDemoFn }: Props) {
                         key={i}
                         type="button"
                         className={`frame-pill ${i === frame ? "is-active" : ""}`}
+                        style={i === frame ? { background: "var(--accent)", color: "#000", border: 'none' } : {}}
                         onClick={() => setFrame(i)}
                       >
-                        Step {i + 1}
+                        CYC_{i + 1}
                       </button>
                     ))}
                   </div>
                   <div className="grid-two">
                     <div>
                       <p className="section-title" style={{ marginBottom: "0.65rem" }}>
-                        64D vectors → 3D PCA convex hull
+                        SVD Hull Visualizer
                       </p>
                       <div className="viz-wrap">
                         <VectorSpace3D
                           frame={currentMorph}
-                          frameLabel={`Morph · step ${frame + 1} / ${morphFrames.length}`}
+                          frameLabel={`T=${frame + 1} // ${morphFrames.length}`}
                         />
                       </div>
                       <div className="legend">
@@ -216,34 +240,34 @@ export function DemoExperience({ runDemoFn }: Props) {
                             className="legend-dot"
                             style={{ background: "#8b9cb8" }}
                           />
-                          corpus
+                          Corpus
                         </span>
                         <span className="legend-item">
                           <span
                             className="legend-dot"
                             style={{ background: "#5b9cfa" }}
                           />
-                          α
+                          A-1
                         </span>
                         <span className="legend-item">
                           <span
                             className="legend-dot"
                             style={{ background: "#3ecf8e" }}
                           />
-                          β
+                          A-2
                         </span>
                         <span className="legend-item">
                           <span
                             className="legend-dot"
                             style={{ background: "#e3b341" }}
                           />
-                          γ
+                          A-3
                         </span>
                       </div>
                     </div>
                     <div>
                       <p className="section-title" style={{ marginBottom: "0.65rem" }}>
-                        Topology
+                        Node Density Flow
                       </p>
                       <div className="viz-wrap">
                         <AgentTopology
@@ -252,36 +276,6 @@ export function DemoExperience({ runDemoFn }: Props) {
                         />
                       </div>
                     </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="card">
-                <div className="card-inner">
-                  <p className="section-title">Clustering</p>
-                  <h2 className="section-heading">Final memory — K-means & anomalies</h2>
-                  <p className="section-desc">
-                    Colors are cluster IDs; red ring = high z-score distance to centroid (see{" "}
-                    <code>detect_anomalies</code>).
-                  </p>
-                  <div className="viz-wrap">
-                    {finalClusters && (
-                      <ClusterScatter
-                        snap={finalClusters}
-                        width={720}
-                        height={340}
-                        title="Final state · K-means in 2D PCA"
-                      />
-                    )}
-                  </div>
-                  <div className="legend">
-                    <span className="legend-item">
-                      <span
-                        className="legend-dot"
-                        style={{ border: "1px dashed rgba(139, 156, 184, 0.8)" }}
-                      />
-                      Dashed = centroid
-                    </span>
                   </div>
                 </div>
               </div>

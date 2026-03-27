@@ -231,24 +231,56 @@ export function VectorSpace3D({ frame, frameLabel }: Props) {
     const materials: THREE.Material[] = [];
     const extraDisposables: { dispose: () => void }[] = [];
 
+    // --- Create Tensor Vectors ---
+    const tensorLinesGroup = new THREE.Group();
+    hullGroup.add(tensorLinesGroup);
+    
+    const lineMat = new THREE.LineBasicMaterial({
+      color: 0x00ffcc,
+      transparent: true,
+      opacity: 0.8,
+    });
+    materials.push(lineMat);
+    
+    const origin = new THREE.Vector3(0, 0, 0);
+    const lineData: { geo: THREE.BufferGeometry, p: THREE.Vector3, phase: number, speed: number }[] = [];
+    
+    for (const p of unique) {
+      const geo = new THREE.BufferGeometry().setFromPoints([origin, p]);
+      const line = new THREE.Line(geo, lineMat);
+      tensorLinesGroup.add(line);
+      lineData.push({ 
+        geo, 
+        p: p.clone(), 
+        phase: Math.random() * Math.PI * 2,
+        speed: 1.5 + Math.random() * 2.0
+      });
+      disposables.push(geo);
+
+      // Add a glowing node at the end of the vector
+      const nodeGeo = new THREE.BoxGeometry(0.04, 0.04, 0.04);
+      const nodeMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
+      const nodeMesh = new THREE.Mesh(nodeGeo, nodeMat);
+      nodeMesh.position.copy(p);
+      line.add(nodeMesh); // Add as child so they move together
+      disposables.push(nodeGeo);
+      materials.push(nodeMat);
+    }
+
     const solidGeom = buildConvexSolidGeometry(unique);
     if (solidGeom) {
       const isBigHull = unique.length >= 4;
 
       const faceMat = new THREE.MeshPhysicalMaterial({
-        color: 0x2d4a78,
-        emissive: 0x050a18,
-        metalness: 0.22,
-        roughness: 0.28,
+        color: 0x0066ff,
+        emissive: 0x001133,
+        metalness: 0.8,
+        roughness: 0.1,
         transparent: true,
-        opacity: isBigHull ? 0.38 : 0.68,
+        opacity: isBigHull ? 0.15 : 0.4,
         side: THREE.DoubleSide,
         depthWrite: !isBigHull,
-        transmission: 0.15,
-        thickness: 0.55,
-        clearcoat: 0.45,
-        clearcoatRoughness: 0.25,
-        ior: 1.35,
+        transmission: 0.5,
       });
       materials.push(faceMat);
 
@@ -270,30 +302,12 @@ export function VectorSpace3D({ frame, frameLabel }: Props) {
       disposables.push(solidGeom);
 
       if (isBigHull && solidGeom instanceof THREE.BufferGeometry) {
-        const innerGeom = solidGeom.clone();
-        const innerMat = new THREE.MeshPhysicalMaterial({
-          color: 0x020810,
-          emissive: 0x000510,
-          metalness: 0.4,
-          roughness: 0.55,
-          side: THREE.BackSide,
-          transparent: true,
-          opacity: 0.92,
-        });
-        materials.push(innerMat);
-        const innerMesh = new THREE.Mesh(innerGeom, innerMat);
-        innerMesh.scale.multiplyScalar(0.94);
-        innerMesh.position.copy(solidMesh.position);
-        innerMesh.quaternion.copy(solidMesh.quaternion);
-        hullGroup.add(innerMesh);
-        disposables.push(innerGeom);
-
         try {
           const wireGeo = new THREE.WireframeGeometry(solidGeom);
           const wireMat = new THREE.LineBasicMaterial({
-            color: 0x8ec8ff,
+            color: 0x00aaff,
             transparent: true,
-            opacity: 0.22,
+            opacity: 0.5,
           });
           materials.push(wireMat);
           const wireframe = new THREE.LineSegments(wireGeo, wireMat);
@@ -304,47 +318,42 @@ export function VectorSpace3D({ frame, frameLabel }: Props) {
         } catch {
           /* ignore */
         }
-
-        try {
-          const edges = new THREE.EdgesGeometry(solidGeom, 18);
-          const edgeMat = new THREE.LineBasicMaterial({
-            color: 0x6eb8ff,
-            transparent: true,
-            opacity: 0.65,
-          });
-          materials.push(edgeMat);
-          const edgeLines = new THREE.LineSegments(edges, edgeMat);
-          edgeLines.position.copy(solidMesh.position);
-          edgeLines.quaternion.copy(solidMesh.quaternion);
-          hullGroup.add(edgeLines);
-          disposables.push(edges);
-        } catch {
-          /* ignore */
-        }
-      } else if (solidGeom instanceof THREE.BufferGeometry) {
-        try {
-          const edges = new THREE.EdgesGeometry(solidGeom, 22);
-          const lineMat = new THREE.LineBasicMaterial({
-            color: 0x7ec0ff,
-            transparent: true,
-            opacity: 0.55,
-          });
-          materials.push(lineMat);
-          const wire = new THREE.LineSegments(edges, lineMat);
-          wire.position.copy(solidMesh.position);
-          wire.quaternion.copy(solidMesh.quaternion);
-          hullGroup.add(wire);
-          disposables.push(edges);
-        } catch {
-          /* ignore */
-        }
       }
     }
 
     let raf = 0;
     const tick = () => {
       raf = requestAnimationFrame(tick);
-      hullGroup.rotation.y += 0.0012;
+      
+      const t = performance.now() * 0.001;
+      
+      // Global orbit
+      hullGroup.rotation.y = t * 0.2;
+      hullGroup.rotation.x = Math.sin(t * 0.1) * 0.15;
+      
+      // Breathing scaling
+      const globalScale = 1 + 0.04 * Math.sin(t * 3);
+      hullGroup.scale.set(globalScale, globalScale, globalScale);
+
+      // Animate each independent vector stretching based on differential eq simulations
+      for (let i = 0; i < lineData.length; i++) {
+        const { geo, p, phase, speed } = lineData[i];
+        const positions = geo.attributes.position.array as Float32Array;
+        
+        // Stretch simulates the deformation and decay of vectors over time
+        const stretch = 1 + 0.25 * Math.sin(t * speed + phase);
+        
+        positions[3] = p.x * stretch;
+        positions[4] = p.y * stretch;
+        positions[5] = p.z * stretch;
+        geo.attributes.position.needsUpdate = true;
+        
+        // Update the child box node position
+        const lineMesh = tensorLinesGroup.children[i] as THREE.Line;
+        const nodeMesh = lineMesh.children[0] as THREE.Mesh;
+        nodeMesh.position.set(positions[3], positions[4], positions[5]);
+      }
+
       controls.update();
       composer.render();
     };

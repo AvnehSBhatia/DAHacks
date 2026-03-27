@@ -2,6 +2,7 @@ import type { SimParticle } from "../lib/latentSim";
 import { decayRateDisplay } from "../lib/latentSim";
 import { cosineSimilarity } from "../lib/mathVec";
 import { MiniSparkline } from "./MiniSparkline";
+import React from "react";
 
 type Props = {
   particle: SimParticle | null;
@@ -80,6 +81,27 @@ export function VectorDetailPanel({
       <div className="detail-panel__spark">
         <p className="detail-panel__spark-label">Weight vs. sim time</p>
         <MiniSparkline values={particle.weightHistory} />
+      </div>
+      <div className="detail-panel__text">
+        <p className="detail-panel__text-label">Data Flow & Math Pipeline</p>
+        <div style={{ fontSize: "0.75rem", fontFamily: "var(--font-mono)", color: "var(--text-muted)", padding: "0.5rem", background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", marginBottom: "0.75rem" }}>
+          <div>1. Text → SentenceTransformer → Neural Net </div>
+          <div>2. 64-D Latent Tensor generated</div>
+          <div>3. <span style={{color:"var(--accent)"}}>cos(θ) = (A · B) / (||A|| ||B||)</span> calculated for nearest neighbor</div>
+          <div>4. 3x64 PCA Projection Matrix computes 3D (x,y,z) coordinate</div>
+        </div>
+      </div>
+      <div className="detail-panel__text">
+        <p className="detail-panel__text-label">64-Dimensional Vector Tensor [V_0 ... V_63]</p>
+        <div className="math-matrix-container">
+          <div className="math-matrix">
+            {particle.v.map((val, idx) => (
+              <span key={idx} className="math-matrix-cell" title={`V_${idx} = ${val}`}>
+                {val.toFixed(2)}
+              </span>
+            ))}
+          </div>
+        </div>
       </div>
       <div className="detail-panel__text">
         <p className="detail-panel__text-label">Content</p>
