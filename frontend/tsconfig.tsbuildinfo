@@ -1,1 +1,1 @@
-{"root":["./src/agenttopology.tsx","./src/app.tsx","./src/clusterscatter.tsx","./src/vectorspace3d.tsx","./src/api.ts","./src/main.tsx","./src/vite-env.d.ts"],"version":"5.6.3"}
+{"root":["./src/agenttopology.tsx","./src/app.tsx","./src/clusterscatter.tsx","./src/vectorspace3d.tsx","./src/api.ts","./src/main.tsx","./src/vite-env.d.ts","./src/components/latentfieldviz.tsx","./src/components/minisparkline.tsx","./src/components/vectordetailpanel.tsx","./src/lib/latentsim.ts","./src/lib/mathvec.ts","./src/lib/pca3.ts"],"version":"5.6.3"}

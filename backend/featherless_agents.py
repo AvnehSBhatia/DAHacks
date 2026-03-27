@@ -9,6 +9,7 @@ then call the chat API. API key must come from the environment (never commit sec
 
 Optional:
   export FEATHERLESS_BASE_URL="https://api.featherless.ai/v1"
+  export FEATHERLESS_MODEL="Qwen/Qwen3-8B"   # default if unset
 """
 
 from __future__ import annotations
@@ -26,6 +27,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from openai import OpenAI
+
+from sentence_transformers import SentenceTransformer
 
 from models.device import select_torch_device
 from models.sentence_transformer_loader import load_sentence_transformer
@@ -120,7 +123,7 @@ def main() -> None:
         sys.exit(1)
 
     base_url = os.environ.get("FEATHERLESS_BASE_URL", "https://api.featherless.ai/v1")
-    model = os.environ.get("FEATHERLESS_MODEL", "meta-llama/Meta-Llama-3-8B")
+    model = os.environ.get("FEATHERLESS_MODEL", "Qwen/Qwen3-8B")
     enc_path = resolve_repo_path(os.environ.get("ENCODER_PATH", str(DEFAULT_ENCODER)))
 
     device = select_torch_device()

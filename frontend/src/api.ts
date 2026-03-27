@@ -40,24 +40,129 @@ export type DemoStep = {
   w_frobenius_delta: number;
 };
 
+/** One snapshot of every anchor’s 64-D latent (deformed + original) for custom visuals */
+export type AnchorVectorRecord = {
+  id: string;
+  agent_id: string;
+  vector: number[];
+  vector_original: number[];
+  text: string;
+  anomaly: boolean;
+  penalized: boolean;
+  weight: number;
+  impact: number;
+  /** Unix seconds from server anchor insertion */
+  timestamp?: number;
+};
+
+export type LatentPayload = {
+  dim: number;
+  session_z: number[];
+  ground_truth: number[];
+  base_vector: number[];
+  anchors_final: AnchorVectorRecord[];
+  /** Per interaction step: all anchors present after that step */
+  timeline_vectors: AnchorVectorRecord[][];
+  encoder_loaded: boolean;
+  response_net_loaded: boolean;
+  num_agents?: number;
+  stagger_s?: number;
+  cycles?: number;
+};
+
 export type DemoResult = {
   prompt: string;
+  context?: string;
   steps: DemoStep[];
   morph_frames: MorphFrame3D[];
   final_clusters: ClusterSnapshot2D;
   w_frobenius_delta_start: number;
   w_frobenius_delta_end: number;
+  latent?: LatentPayload;
 };
 
-export async function runDemo(prompt: string): Promise<DemoResult> {
+export type RunDemoBody = {
+  prompt: string;
+  context?: string;
+  num_agents?: number;
+  stagger_s?: number;
+  cycles?: number;
+};
+
+export async function runDemo(
+  prompt: string,
+  context: string = "",
+  opts?: Pick<RunDemoBody, "num_agents" | "stagger_s" | "cycles">,
+): Promise<DemoResult> {
   const res = await fetch("/api/demo/run", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({
+      prompt,
+      context,
+      num_agents: opts?.num_agents ?? 3,
+      stagger_s: opts?.stagger_s ?? 0.5,
+      cycles: opts?.cycles ?? 1,
+    }),
   });
   if (!res.ok) {
     const t = await res.text();
     throw new Error(t || res.statusText);
   }
   return res.json();
+}
+
+/** 
+ * Generator to stream Server-Sent Events (NDJSON) updates from the backend 
+ */
+export async function* runDemoStream(
+  prompt: string,
+  context: string = "",
+  opts?: Pick<RunDemoBody, "num_agents" | "stagger_s" | "cycles">,
+): AsyncGenerator<any, void, unknown> {
+  const res = await fetch("/api/demo/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      prompt,
+      context,
+      num_agents: opts?.num_agents ?? 3,
+      stagger_s: opts?.stagger_s ?? 0.5,
+      cycles: opts?.cycles ?? 1,
+    }),
+  });
+
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(t || res.statusText);
+  }
+
+  if (!res.body) throw new Error("No response body");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    
+    buffer += decoder.decode(value, { stream: true });
+    
+    // Process SSE properly formatted with `data: ...\n\n`
+    const chunks = buffer.split("\n\n");
+    buffer = chunks.pop() || "";
+    
+    for (const chunk of chunks) {
+      if (chunk.startsWith("data: ")) {
+        const jsonStr = chunk.substring("data: ".length).trim();
+        if (jsonStr) {
+          try {
+            yield JSON.parse(jsonStr);
+          } catch (e) {
+            console.error("Failed to parse chunk:", jsonStr, e);
+          }
+        }
+      }
+    }
+  }
 }

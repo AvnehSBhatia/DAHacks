@@ -149,8 +149,9 @@ class LatentSpace:
     decay_k                 base weight decay rate
     stretch_s0              initial stretch for clean anchors (>1 = elongate)
     stretch_k               deformation decay rate (faster than decay_k)
-    min_anchors_for_deform  don't deform until GT is stable enough
-    device                  None = autodetect (cuda → mps → cpu), or 'cuda'|'mps'|'cpu'
+    min_anchors_for_deform    don't deform until GT is stable enough
+    min_anchors_for_detection  skip anomaly scoring below this count (defaults to min_anchors_for_deform)
+    device                    None = autodetect (cuda → mps → cpu), or 'cuda'|'mps'|'cpu'
     """
 
     def __init__(
@@ -168,6 +169,7 @@ class LatentSpace:
         stretch_s0:             float = 1.3,
         stretch_k:              float = 0.015,
         min_anchors_for_deform: int   = 10,
+        min_anchors_for_detection: int | None = None,
         device:                 str | None = None,
     ) -> None:
         self.dim                    = dim
@@ -180,6 +182,11 @@ class LatentSpace:
         self.stretch_s0             = stretch_s0
         self.stretch_k              = stretch_k
         self.min_anchors_for_deform = min_anchors_for_deform
+        self.min_anchors_for_detection = (
+            min_anchors_for_detection
+            if min_anchors_for_detection is not None
+            else min_anchors_for_deform
+        )
         dev_str = device if device is not None else autodetect_device_str()
         self.device                 = torch.device(dev_str)
 
@@ -319,21 +326,20 @@ class LatentSpace:
         """
         Composite score = 0.6 × neighbour_distance + 0.4 × GT_divergence.
 
-        z is the raw pre-deformation vector. We compare it against the
-        *deformed* positions of existing anchors — so anomalies that were
-        already compressed off-axis are now geometrically further from
-        incoming clean vectors, compounding the separation.
+        Skips the anomaly gate (returns clean) when the space is too sparse
+        to produce a stable ground-truth estimate. The warm-up size is
+        ``min_anchors_for_detection`` (defaults to ``min_anchors_for_deform``).
         """
-        if not self.anchors:
+        if len(self.anchors) < self.min_anchors_for_detection:
             return AnomalyResult(False, 0.0, self.anomaly_threshold)
 
-        stacked      = torch.stack([a.vector for a in self.anchors])
-        cos_sim      = F.cosine_similarity(z.unsqueeze(0), stacked)
+        stacked = torch.stack([a.vector for a in self.anchors])
+        cos_sim = F.cosine_similarity(z.unsqueeze(0), stacked)
         top_k_sim, _ = cos_sim.topk(min(k, len(self.anchors)))
-        mean_sim     = top_k_sim.mean().item()
-        distance     = 1.0 - mean_sim
+        mean_sim = top_k_sim.mean().item()
+        distance = 1.0 - mean_sim
 
-        gt_sim      = F.cosine_similarity(
+        gt_sim = F.cosine_similarity(
             z.unsqueeze(0), self.ground_truth.unsqueeze(0)
         ).item()
         gt_distance = 1.0 - gt_sim
@@ -435,7 +441,8 @@ class LatentSpace:
         hits: list[RetrievalHit] = []
         for a, sim in zip(candidates, cos_sim):
             decay_w = a.logistic_weight(now, self.decay_k)
-            score   = sim * decay_w * a.impact
+            pen_w = 0.5 if a.penalized else 1.0
+            score = sim * decay_w * a.impact * pen_w
             hits.append(RetrievalHit(anchor=a, score=score))
 
         hits.sort(key=lambda h: h.score, reverse=True)
@@ -566,8 +573,13 @@ class LatentSpace:
             centroid.unsqueeze(0), self.ground_truth.unsqueeze(0)
         ).item())
 
-        if anom_rate > 0.5 or gt_div > 0.6:
+        # Health ∈ [0,1]: 1 = aligned with consensus; ≤0.5 = bottom half → suspicious + prune target
+        health = 1.0 - (0.6 * anom_rate + 0.4 * gt_div)
+
+        if anom_rate >= 0.5 or gt_div > 0.6:
             verdict = "bad_actor"
+        elif health <= 0.5:
+            verdict = "suspicious"
         elif anom_rate > 0.25 or gt_div > 0.35:
             verdict = "suspicious"
         else:
@@ -582,8 +594,28 @@ class LatentSpace:
             "mean_weight":       round(mean_weight, 3),
             "gt_divergence":     round(gt_div, 3),
             "mean_stretch":      round(mean_stretch, 3),  # <1 = penalized, >1 = amplified
+            "health":            round(health, 3),
             "verdict":           verdict,
         }
+
+    def penalize_agent_anchors(self, agent_id: str, *, factor: float = 0.5) -> int:
+        """
+        Mark anchors from ``agent_id`` as post-hoc penalized: ``impact`` and ``weight``
+        are scaled by ``factor``, and ``penalized`` is set so retrieval and GT treat
+        them as second-class (see ``retrieve`` and ``gravitational_step``).
+        Idempotent: already-penalized anchors are skipped.
+        """
+        n = 0
+        for a in self.anchors:
+            if a.agent_id != agent_id or a.penalized:
+                continue
+            a.penalized = True
+            a.impact = max(0.0, a.impact * factor)
+            a.weight = max(0.0, a.weight * factor)
+            n += 1
+        if n:
+            self._gt_dirty = True
+        return n
 
     # ══════════════════════════════════════════════════════════════════════════
     # Stats

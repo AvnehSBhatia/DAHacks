@@ -3,7 +3,9 @@ Cohesive orchestration: prompt + context → 64-D session vector, N persona-agen
 each pull/push into a shared LatentSpace, outlier detection + removal, then a random
 survivor answers using score-weighted retrieval.
 
-Configuration: JSON file (see backend/system_config.json). Run:
+Configuration: JSON file (see backend/system_config.json). Use ``session.final_synthesize``:
+``retrieval`` (default) prints ranked anchors from the latent query; ``agent`` calls
+each agent's ``generate_fn`` with plain anchor texts (for real LLMs). Run:
 
     ./run_cohesive.sh
     python backend/cohesive_system.py --config backend/system_config.json
@@ -75,7 +77,13 @@ def agents_to_flag_for_removal(
     *,
     iqr_factor: float,
     min_trust: float,
+    prune_health_at_or_below: float,
 ) -> set[str]:
+    """
+    Remove agents that are bad actors, below ``min_trust``, statistical outliers
+    (IQR), or at or below ``prune_health_at_or_below`` on the latent health score
+    (0.5 = bottom 50% of the 0–1 health scale for typical agents).
+    """
     remove: set[str] = set()
     for aid in agent_ids:
         rep = space.agent_anomaly_score(aid)
@@ -86,6 +94,9 @@ def agents_to_flag_for_removal(
                 remove.add(aid)
         except KeyError:
             pass
+        health = float(rep.get("health", 1.0))
+        if health <= prune_health_at_or_below:
+            remove.add(aid)
     remove |= cross_agent_outlier_ids(space, agent_ids, iqr_factor)
     return remove
 
@@ -105,6 +116,9 @@ def run_cohesive(config: dict[str, Any]) -> dict[str, Any]:
     num_models = int(sess["num_models"])
     cycles = int(sess["cycles_per_model"])
     final_k = int(sess.get("final_retrieval_k", 12))
+    final_synthesize = str(sess.get("final_synthesize", "retrieval")).strip().lower()
+    if final_synthesize not in ("retrieval", "agent"):
+        raise ValueError("session.final_synthesize must be 'retrieval' or 'agent'")
     base_vector = sess.get(
         "base_vector",
         "You are a reliable multi-agent knowledge system. Provide accurate, factual responses.",
@@ -116,6 +130,7 @@ def run_cohesive(config: dict[str, Any]) -> dict[str, Any]:
     iqr_factor = float(out_cfg.get("iqr_factor", 1.5))
     min_trust = float(out_cfg.get("min_trust", 0.2))
     removal_passes = int(out_cfg.get("removal_passes", 2))
+    prune_health_at_or_below = float(out_cfg.get("prune_health_at_or_below", 0.5))
 
     random.seed(seed)
     torch.manual_seed(seed)
@@ -173,6 +188,9 @@ def run_cohesive(config: dict[str, Any]) -> dict[str, Any]:
 
     # --- Outlier detection & removal ---
     print("\n[Phase 2] Outlier detection and agent removal…")
+    print(
+        f"  (health ≤ {prune_health_at_or_below} → prune list; penalize anchors when health in that band or bad_actor)"
+    )
     for p in range(removal_passes):
         alive = network.list_agents()
         if not alive:
@@ -183,10 +201,24 @@ def run_cohesive(config: dict[str, Any]) -> dict[str, Any]:
             alive,
             iqr_factor=iqr_factor,
             min_trust=min_trust,
+            prune_health_at_or_below=prune_health_at_or_below,
         )
         for aid in sorted(to_remove):
+            rep = space.agent_anomaly_score(aid)
+            health = float(rep.get("health", 1.0))
+            verdict = rep.get("verdict")
+            should_penalize = verdict == "bad_actor" or (
+                verdict not in ("no_data", None) and health <= prune_health_at_or_below
+            )
+            if should_penalize and verdict != "no_data":
+                n_pen = space.penalize_agent_anchors(aid)
+                if n_pen:
+                    print(
+                        f"  Penalized {n_pen} anchor(s) for {aid} "
+                        f"(health={health:.3f}, verdict={verdict})"
+                    )
             network.remove_agent(aid)
-            print(f"  Removed outlier / low-trust agent: {aid}")
+            print(f"  Removed outlier / low-trust / low-health agent: {aid}")
         if not to_remove:
             print(f"  Pass {p + 1}: no agents removed")
         network.refresh_trust_scores()
@@ -202,12 +234,22 @@ def run_cohesive(config: dict[str, Any]) -> dict[str, Any]:
     chosen = random.choice(surviving)
     print(f"\n[Phase 3] Final answer from random survivor: {chosen}")
     print(f"  Retrieving top-{final_k} anchors weighted by similarity × decay × impact…")
-    final = network.final_answer_weighted(
-        prompt=prompt,
-        agent_id=chosen,
-        query_z=z_session,
-        k=final_k,
-    )
+    if final_synthesize == "agent":
+        final = network.final_answer_weighted(
+            prompt=prompt,
+            agent_id=chosen,
+            query_z=z_session,
+            k=final_k,
+            synthesize="agent",
+        )
+    else:
+        final = network.final_answer_weighted(
+            prompt=prompt,
+            agent_id=chosen,
+            query_z=z_session,
+            k=final_k,
+            synthesize="retrieval",
+        )
 
     audit = network.audit_agents()
 
@@ -242,7 +284,10 @@ def main() -> None:
     print("  AUDIT (survivors + removed may be inferred from audit)")
     print("=" * 60)
     for r in result["audit"]:
-        print(f"  {r.get('agent_id')}: verdict={r.get('verdict')}  anomaly_rate={r.get('anomaly_rate')}  trust≈{r.get('trust_score')}")
+        print(
+            f"  {r.get('agent_id')}: verdict={r.get('verdict')}  "
+            f"health={r.get('health')}  anomaly_rate={r.get('anomaly_rate')}  trust≈{r.get('trust_score')}"
+        )
 
 
 if __name__ == "__main__":

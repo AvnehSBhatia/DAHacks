@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 
+_backend = Path(__file__).resolve().parent.parent / "backend"
+if str(_backend) not in sys.path:
+    sys.path.insert(0, str(_backend))
 from app.anomaly import detect_anomalies
+
 from demo.kit import EMBED_DIM
 
 

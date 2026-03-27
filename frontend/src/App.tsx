@@ -1,294 +1,213 @@
-import { useCallback, useEffect, useState } from "react";
-import { AgentTopology } from "./AgentTopology";
+import { useCallback, useState } from "react";
 import { ClusterScatter } from "./ClusterScatter";
-import { runDemo, type DemoResult } from "./api";
-import { VectorSpace3D } from "./VectorSpace3D";
+import { runDemoStream, type DemoResult } from "./api";
+import { LatentFieldViz, type InspectInfo } from "./components/LatentFieldViz";
+import { VectorDetailPanel } from "./components/VectorDetailPanel";
 import "./App.css";
 
-type MainTab = "prompt" | "visualization";
-
 export default function App() {
-  const [mainTab, setMainTab] = useState<MainTab>("prompt");
-  const [prompt, setPrompt] = useState("What is the capital of France?");
+  const [prompt, setPrompt] = useState(
+    "Explain how photosynthesis relates to atmospheric oxygen.",
+  );
+  const [context, setContext] = useState(
+    "Educational clarity for a high-school audience.",
+  );
   const [loading, setLoading] = useState(false);
+  const [activeAgent, setActiveAgent] = useState<{ id: string; name: string } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<DemoResult | null>(null);
-  const [frame, setFrame] = useState(0);
-
-  const morphFrames = data?.morph_frames ?? [];
-
-  useEffect(() => {
-    if (!morphFrames.length) return;
-    const t = setInterval(() => {
-      setFrame((f) => (f + 1) % morphFrames.length);
-    }, 2200);
-    return () => clearInterval(t);
-  }, [morphFrames]);
-
-  const currentMorph = morphFrames[frame] ?? null;
-  const finalClusters = data?.final_clusters ?? null;
+  const [inspect, setInspect] = useState<InspectInfo>(null);
 
   const onSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
       setErr(null);
       setLoading(true);
+      setActiveAgent(null);
       setData(null);
+      setInspect(null);
+      
       try {
-        const r = await runDemo(prompt.trim());
-        setData(r);
-        setFrame(0);
-        setMainTab("visualization");
+        const stream = runDemoStream(prompt.trim(), context.trim(), { num_agents: 3 });
+        
+        for await (const event of stream) {
+          if (event.type === "init") {
+            const p = event.payload;
+            setData({
+              prompt: prompt.trim(),
+              context: context.trim(),
+              steps: [],
+              morph_frames: [],
+              final_clusters: { points: [], centroids: [], anomaly_ids: [], explained_variance_ratio: [] },
+              w_frobenius_delta_start: p.w_frobenius_delta_start,
+              w_frobenius_delta_end: p.w_frobenius_delta_start,
+              latent: {
+                dim: 64,
+                session_z: p.session_z,
+                ground_truth: [], // Will be filled
+                base_vector: [], // Will be filled
+                anchors_final: [],
+                timeline_vectors: [],
+                encoder_loaded: true,
+                response_net_loaded: true,
+                num_agents: 3,
+                stagger_s: 0.5,
+                cycles: 1
+              }
+            });
+          } else if (event.type === "thinking") {
+            setActiveAgent({ id: event.agent_id, name: event.agent_name });
+          } else if (event.type === "step") {
+            setActiveAgent(null);
+            setData((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                steps: [...prev.steps, event.payload.step],
+                morph_frames: [...prev.morph_frames, event.payload.current_frame],
+                latent: {
+                  ...prev.latent!,
+                  anchors_final: event.payload.latent.anchors_final,
+                  ground_truth: event.payload.latent.ground_truth,
+                }
+              };
+            });
+          } else if (event.type === "complete") {
+            setData(event.payload);
+            setActiveAgent(null);
+          }
+        }
       } catch (e: unknown) {
         setErr(e instanceof Error ? e.message : "Request failed");
+        setActiveAgent(null);
       } finally {
         setLoading(false);
       }
     },
-    [prompt],
+    [prompt, context],
   );
 
+  const latent = data?.latent;
+
   return (
-    <div className="app">
-      <nav
-        className="tab-bar"
-        role="tablist"
-        aria-label="Primary"
-      >
-        <button
-          type="button"
-          role="tab"
-          id="tab-prompt"
-          aria-selected={mainTab === "prompt"}
-          aria-controls="panel-prompt"
-          tabIndex={mainTab === "prompt" ? 0 : -1}
-          className="tab-btn"
-          onClick={() => setMainTab("prompt")}
-        >
-          Prompt
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-visualization"
-          aria-selected={mainTab === "visualization"}
-          aria-controls="panel-visualization"
-          tabIndex={mainTab === "visualization" ? 0 : -1}
-          className="tab-btn"
-          onClick={() => setMainTab("visualization")}
-        >
-          Visualization
-        </button>
-      </nav>
+    <div className="app-shell">
+      <header className="app-shell__header">
+        <p className="app-shell__brand">DAHacks · Latent field</p>
+        <h1 className="app-shell__title">Evolving vector memory</h1>
+        <p className="app-shell__lede">
+          A shared <strong>64-dimensional</strong> space: agents insert anchors, ground truth acts as
+          an attractor, and weights decay smoothly. The 3D view uses a fixed PCA basis; simulation
+          integrates gravitational pull at <code className="mono">Δt = 0.001s</code> per substep
+          (rendered at display rate).
+        </p>
+      </header>
 
-      {mainTab === "prompt" && (
-        <div
-          id="panel-prompt"
-          role="tabpanel"
-          aria-labelledby="tab-prompt"
-          className="tab-panel"
-        >
-          <header className="app-header">
-            <p className="app-kicker">DAHacks demo</p>
-            <h1 className="app-title">Shared latent memory</h1>
-            <p className="app-lede">
-              Three agents run in sequence on the same vector memory and latent matrix{" "}
-              <code>W</code>. Agent γ is tuned to hallucinate—watch clusters and anomalies.
-            </p>
-          </header>
-
-          <div className="card card-glow">
-            <div className="card-inner">
-              <p className="section-title">Prompt</p>
-              <form onSubmit={onSubmit}>
-                <label className="form-label" htmlFor="p">
-                  Grounded question (try France, speed of light, or boiling water)
-                </label>
-                <textarea
-                  id="p"
-                  className="textarea-field"
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  rows={3}
-                  placeholder="Ask something answerable from the seeded corpus…"
-                />
-                <div style={{ marginTop: "1rem" }}>
-                  <button
-                    type="submit"
-                    className="btn-primary"
-                    disabled={loading || !prompt.trim()}
-                  >
-                    {loading && <span className="btn-spinner" aria-hidden />}
-                    {loading ? "Running pipeline…" : "Run demo"}
-                  </button>
-                </div>
-              </form>
+      <section className="card" style={{ marginBottom: "1.75rem" }}>
+        <div className="card__inner">
+          <p className="card__title">Session</p>
+          <form onSubmit={onSubmit}>
+            <label className="form-label" htmlFor="p">
+              Prompt
+            </label>
+            <textarea
+              id="p"
+              className="textarea-field"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              rows={3}
+            />
+            <label className="form-label" htmlFor="ctx" style={{ marginTop: "0.85rem" }}>
+              Context
+            </label>
+            <textarea
+              id="ctx"
+              className="textarea-field"
+              value={context}
+              onChange={(e) => setContext(e.target.value)}
+              rows={2}
+            />
+            <div style={{ marginTop: "1.1rem" }}>
+              <button type="submit" className="btn-primary" disabled={loading || !prompt.trim()}>
+                {loading && <span className="btn-spinner" aria-hidden />}
+                {loading ? "Visualizing real-time..." : "Run & visualize (3 Agents)"}
+              </button>
             </div>
-          </div>
+          </form>
+        </div>
+      </section>
 
-          {err && (
-            <p className="alert-error" style={{ marginTop: "1.25rem" }} role="alert">
-              {err}
-            </p>
-          )}
+      {err && (
+        <p className="alert-error" role="alert">
+          {err}
+        </p>
+      )}
+
+      {!data && !loading && !err && (
+        <div className="card">
+          <div className="card__inner empty-state">
+            <p>Submit a prompt to materialize anchors and open the interactive field.</p>
+          </div>
         </div>
       )}
 
-      {mainTab === "visualization" && (
-        <div
-          id="panel-visualization"
-          role="tabpanel"
-          aria-labelledby="tab-visualization"
-          className="tab-panel"
-        >
-          <header className="app-header" style={{ marginBottom: "1.25rem" }}>
-            <p className="app-kicker">Results</p>
-            <h1 className="app-title" style={{ fontSize: "clamp(1.25rem, 3vw, 1.65rem)" }}>
-              Visualization
-            </h1>
-            {data ? (
-              <p className="app-lede" style={{ fontSize: "0.92rem" }}>
-                Prompt: <q>{data.prompt}</q>
+      {data && latent && (
+        <>
+          <section className="card" style={{ marginBottom: "1.25rem" }}>
+            <div className="card__inner" style={{ paddingBottom: "0.85rem" }}>
+              <p className="card__title">Latent dynamics</p>
+              <p className="meta-strip">
+                <q>{data.prompt}</q>
+                {data.context ? (
+                  <>
+                    {" "}
+                    · context: <q>{data.context}</q>
+                  </>
+                ) : null}
+                <br />
+                <span className="muted">
+                  ‖GT − base‖: {data.w_frobenius_delta_start.toFixed(3)} →{" "}
+                  {data.w_frobenius_delta_end.toFixed(3)} · {latent.dim}D ·{" "}
+                  {latent.anchors_final.length} anchors · agents{" "}
+                  {latent.num_agents ?? "—"} · stagger {(latent.stagger_s ?? 0.5).toFixed(2)}s · cycles{" "}
+                  {latent.cycles ?? 1} · encoder {latent.encoder_loaded ? "on" : "off"} · response{" "}
+                  {latent.response_net_loaded ? "on" : "off"}
+                </span>
               </p>
-            ) : (
-              <p className="app-lede">
-                Run a prompt first—charts appear here after each demo.
-              </p>
+            </div>
+            <div className="viz-layout" style={{ padding: "0 1.1rem 1.1rem" }}>
+              {latent.anchors_final.length > 0 ? (
+                <LatentFieldViz latent={latent} onInspect={setInspect} />
+              ) : (
+                <div className="latent-field" style={{ display: "grid", placeItems: "center" }}>
+                  <p className="detail-panel__hint">No anchors in this response.</p>
+                </div>
+              )}
+              <VectorDetailPanel
+                particle={inspect?.particle ?? null}
+                gt={latent.ground_truth}
+                position3d={inspect?.position3d ?? [0, 0, 0]}
+                neighborCos={inspect?.neighborCos ?? 0}
+                neighborId={inspect?.neighborId ?? ""}
+              />
+            </div>
+            {activeAgent && (
+              <div style={{ marginTop: "1rem", padding: "0.75rem", background: "var(--accent-soft)", border: "1px solid var(--accent)", borderRadius: "var(--radius-sm)", color: "var(--accent)", fontSize: "0.9rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span className="btn-spinner" style={{ borderColor: "rgba(37, 99, 235, 0.3)", borderTopColor: "var(--accent)" }} />
+                <span><strong>{activeAgent.name}</strong> is generating...</span>
+              </div>
             )}
-          </header>
+          </section>
 
-          {!data && (
-            <div className="card">
-              <div className="card-inner empty-viz">
-                <p>No run yet. Submit a question on the Prompt tab.</p>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setMainTab("prompt")}
-                >
-                  Go to Prompt
-                </button>
-              </div>
-            </div>
-          )}
-
-          {data && (
-            <div className="results-stack">
-              <div className="card">
-                <div className="card-inner">
-                  <p className="section-title">Live visualization</p>
-                  <h2 className="section-heading">3D latent shape & agent topology</h2>
-                  <p className="section-desc">
-                    Left: each point is a{" "}
-                    <strong>{currentMorph?.embed_dim ?? 64}D</strong> memory vector after{" "}
-                    <code>W·x</code>, shown in <strong>3 PCA dimensions</strong> (not
-                    K-means). Frame advances automatically.{" "}
-                    <code>
-                      ‖W − I‖_F: {data.w_frobenius_delta_start.toFixed(3)} →{" "}
-                      {data.w_frobenius_delta_end.toFixed(3)}
-                    </code>
-                  </p>
-                  <div className="frame-pills" role="tablist" aria-label="Morph frames">
-                    {morphFrames.map((_, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        className={`frame-pill ${i === frame ? "is-active" : ""}`}
-                        onClick={() => setFrame(i)}
-                      >
-                        Step {i + 1}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="grid-two">
-                    <div>
-                      <p className="section-title" style={{ marginBottom: "0.65rem" }}>
-                        64D vectors → 3D PCA convex hull
-                      </p>
-                      <div className="viz-wrap">
-                        <VectorSpace3D
-                          frame={currentMorph}
-                          frameLabel={`Morph · step ${frame + 1} / ${morphFrames.length}`}
-                        />
-                      </div>
-                      <div className="legend">
-                        <span className="legend-item">
-                          <span
-                            className="legend-dot"
-                            style={{ background: "#8b9cb8" }}
-                          />
-                          corpus
-                        </span>
-                        <span className="legend-item">
-                          <span
-                            className="legend-dot"
-                            style={{ background: "#5b9cfa" }}
-                          />
-                          α
-                        </span>
-                        <span className="legend-item">
-                          <span
-                            className="legend-dot"
-                            style={{ background: "#3ecf8e" }}
-                          />
-                          β
-                        </span>
-                        <span className="legend-item">
-                          <span
-                            className="legend-dot"
-                            style={{ background: "#e3b341" }}
-                          />
-                          γ
-                        </span>
-                      </div>
-                    </div>
-                    <div>
-                      <p className="section-title" style={{ marginBottom: "0.65rem" }}>
-                        Topology
-                      </p>
-                      <div className="viz-wrap">
-                        <AgentTopology
-                          activeStep={frame}
-                          pulse={data.steps[frame]?.pulse}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="card">
-                <div className="card-inner">
-                  <p className="section-title">Clustering</p>
-                  <h2 className="section-heading">Final memory — K-means & anomalies</h2>
-                  <p className="section-desc">
-                    Colors are cluster IDs; red ring = high z-score distance to centroid (see{" "}
-                    <code>detect_anomalies</code>).
-                  </p>
-                  <div className="viz-wrap">
-                    {finalClusters && (
-                      <ClusterScatter
-                        snap={finalClusters}
-                        width={720}
-                        height={340}
-                        title="Final state · K-means in 2D PCA"
-                      />
-                    )}
-                  </div>
-                  <div className="legend">
-                    <span className="legend-item">
-                      <span
-                        className="legend-dot"
-                        style={{ border: "1px dashed rgba(139, 156, 184, 0.8)" }}
-                      />
-                      Dashed = centroid
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+          <section className="subviz-dark">
+            <p className="subviz-dark__title">Final clusters · 2D PCA</p>
+            <ClusterScatter
+              snap={data.final_clusters}
+              width={720}
+              height={320}
+              title="K-means + anomaly z-scores"
+            />
+          </section>
+        </>
       )}
     </div>
   );

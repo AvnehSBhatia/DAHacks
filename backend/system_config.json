@@ -9,6 +9,7 @@
     "num_models": 5,
     "cycles_per_model": 4,
     "final_retrieval_k": 10,
+    "final_synthesize": "retrieval",
     "interaction_retrieval_k": 5,
     "update_every": 3,
     "agent_id_prefix": "model",
@@ -27,6 +28,7 @@
     "iqr_factor": 1.5,
     "min_trust": 0.15,
     "removal_passes": 2,
-    "bad_actor_threshold": 0.35
+    "bad_actor_threshold": 0.35,
+    "prune_health_at_or_below": 0.5
   }
 }

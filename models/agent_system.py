@@ -17,14 +17,19 @@ AgentNetwork:
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, Literal
 
 import torch
 import torch.nn.functional as F
 
 from .latent_space import Anchor, LatentSpace, RetrievalHit, Vec
+
+
+def _timing_enabled() -> bool:
+    return os.environ.get("DAHACKS_TIMING", "1").strip().lower() not in ("0", "false", "no")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -170,20 +175,26 @@ class AgentNetwork:
         """
         agent = self.get_agent(agent_id)
         self._interaction_count += 1
+        t_run = time.perf_counter()
 
         # ── Step 1: query vector ───────────────────────────────────────────────
         qv = agent.query_vector   # [64] precomputed from role
 
         # ── Step 2: retrieve context ───────────────────────────────────────────
+        t0 = time.perf_counter()
         hits: list[RetrievalHit] = self.space.retrieve(
             qv, k=self.retrieval_k
         )
+        t_retrieve = time.perf_counter() - t0
         context_texts = [h.anchor.text for h in hits]
 
         # ── Step 3: generate ───────────────────────────────────────────────────
+        t0 = time.perf_counter()
         output = agent.generate_fn(prompt, context_texts)
+        t_generate = time.perf_counter() - t0
 
         # ── Step 4: embed output ───────────────────────────────────────────────
+        t0 = time.perf_counter()
         combined_text = (extra_context + " " + prompt + " " + output).strip()
         if self.space._response_net is not None:
             # Use the ResponseLatentNet fusion path
@@ -191,11 +202,14 @@ class AgentNetwork:
             z_new    = self.space.embed_response_to_latent(resp_384, qv)
         else:
             z_new = self.space.embed_pair_to_latent(prompt, output)
+        t_embed = time.perf_counter() - t0
 
         # ── Step 5: insert with anomaly check ─────────────────────────────────
+        t0 = time.perf_counter()
         anchor, anom_result = self.space.insert(
             z_new, text=output, agent_id=agent_id
         )
+        t_insert = time.perf_counter() - t0
 
         # ── Step 6: update agent stats ─────────────────────────────────────────
         agent.n_interactions += 1
@@ -203,9 +217,21 @@ class AgentNetwork:
             agent.n_anomalies += 1
 
         # ── Step 7: maintenance ────────────────────────────────────────────────
+        t_maint = 0.0
         if self._interaction_count % self.update_every == 0:
+            t0 = time.perf_counter()
             self.space.update_cycle()
             self._update_trust_scores()
+            t_maint = time.perf_counter() - t0
+
+        if _timing_enabled():
+            t_total = time.perf_counter() - t_run
+            print(
+                f"[timing] agent={agent_id} retrieve={t_retrieve:.3f}s "
+                f"generate={t_generate:.3f}s embed={t_embed:.3f}s insert={t_insert:.3f}s "
+                f"maint={t_maint:.3f}s total={t_total:.3f}s",
+                flush=True,
+            )
 
         anom_rate = agent.n_anomalies / max(1, agent.n_interactions)
 
@@ -226,23 +252,74 @@ class AgentNetwork:
         weighted_context_lines: list[str]
         hits: list[RetrievalHit]
 
+    @staticmethod
+    def _anchor_text_for_display(anchor_body: str, *, max_len: int = 420) -> str:
+        """Strip demo stub noise: session task is printed once above; drop nested prior-anchor tails."""
+        t = (anchor_body or "").strip().replace("\n", " ")
+        if t.startswith("[task:"):
+            close = t.find("] ")
+            if close != -1:
+                t = t[close + 2 :].strip()
+        if "[prior anchors:" in t:
+            t = t.split("[prior anchors:")[0].strip()
+        if len(t) > max_len:
+            t = t[: max_len - 1] + "…"
+        return t
+
+    def _format_final_from_retrieval(
+        self,
+        prompt: str,
+        agent_id: str,
+        hits: list[RetrievalHit],
+    ) -> str:
+        """Readable Phase-3 report: prompt + ranked anchors (no stub generator chaining)."""
+        if not hits:
+            return (
+                f"No anchors retrieved for this session (prompt: {prompt[:220]}…).\n"
+                "Latent space may be empty or all hits filtered as anomalies."
+            )
+        lines: list[str] = []
+        for h in hits:
+            t = self._anchor_text_for_display(h.anchor.text or "")
+            lines.append(
+                f"  • score={h.score:.4f}  agent={h.anchor.agent_id}\n    {t}"
+            )
+        return (
+            f"Session prompt:\n  {prompt}\n\n"
+            f"Finalist agent: {agent_id}\n\n"
+            f"Top anchors (session 64-D query, weighted retrieval):\n"
+            + "\n".join(lines)
+        )
+
     def final_answer_weighted(
         self,
         prompt: str,
         agent_id: str,
         query_z: Vec,
         k: int,
+        *,
+        synthesize: Literal["retrieval", "agent"] = "retrieval",
     ) -> "AgentNetwork.FinalAnswerResult":
         """
-        Retrieve top-k anchors by cosine × decay × impact using query_z, then call
-        the agent with context lines prefixed by retrieval scores (vector-space weights).
+        Retrieve top-k anchors by cosine × decay × impact using ``query_z``.
+
+        ``synthesize="retrieval"`` (default): format the final answer directly from
+        ranked anchors — avoids feeding score-prefixed strings into stub generators,
+        which previously produced duplicated ``[task:]`` / random-fact noise.
+
+        ``synthesize="agent"``: call ``agent.generate_fn(prompt, anchor_texts)`` with
+        **plain** anchor texts (scores are only in ``weighted_context_lines``).
         """
         agent = self.get_agent(agent_id)
         hits: list[RetrievalHit] = self.space.retrieve(query_z, k=k, include_anomalies=False)
         weighted_lines: list[str] = []
         for h in hits:
             weighted_lines.append(f"[sim×weight={h.score:.4f} | agent={h.anchor.agent_id}] {h.anchor.text}")
-        output = agent.generate_fn(prompt, weighted_lines)
+        anchor_texts = [h.anchor.text for h in hits]
+        if synthesize == "retrieval":
+            output = self._format_final_from_retrieval(prompt, agent_id, hits)
+        else:
+            output = agent.generate_fn(prompt, anchor_texts)
         return AgentNetwork.FinalAnswerResult(
             agent_id=agent_id,
             output=output,
@@ -267,10 +344,10 @@ class AgentNetwork:
             report = self.space.agent_anomaly_score(aid)
             if "verdict" not in report or report["verdict"] == "no_data":
                 continue
-            # Trust = 1 − anomaly_rate weighted by GT divergence
-            anom_r  = report.get("anomaly_rate",   0.0)
-            gt_div  = report.get("gt_divergence",  0.0)
-            raw     = 1.0 - (0.6 * anom_r + 0.4 * gt_div)
+            # Align EMA with latent-space ``health`` (same formula as agent_anomaly_score)
+            raw = float(report.get("health", 1.0 - (
+                0.6 * report.get("anomaly_rate", 0.0) + 0.4 * report.get("gt_divergence", 0.0)
+            )))
             # EMA smooth so a brief glitch doesn't instantly destroy a clean agent
             agent.trust_score = 0.85 * agent.trust_score + 0.15 * max(0.0, raw)
 
