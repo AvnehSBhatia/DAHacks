@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 import random
-from typing import Callable
+from typing import Any, Callable
 
 try:
     import google.generativeai as genai
@@ -79,6 +79,24 @@ def _log_featherless_config_once() -> None:
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+def _assistant_visible_text(msg: Any) -> str | None:
+    """
+    Prefer normal ``content``. Reasoning models (e.g. Qwen3 on Featherless) may leave
+    ``content`` empty while ``finish_reason=='length'`` because the token budget was
+    consumed by the ``reasoning`` field — use that as fallback.
+    """
+    if msg is None:
+        return None
+    c = getattr(msg, "content", None)
+    if isinstance(c, str) and c.strip():
+        return c.strip()
+    for attr in ("reasoning", "reasoning_content"):
+        r = getattr(msg, attr, None)
+        if isinstance(r, str) and r.strip():
+            return r.strip()
+    return None
+
 
 def _fmt_context(context_texts: list[str], max_items: int = 4) -> str:
     """Join the top context snippets into a readable block."""
