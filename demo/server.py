@@ -77,6 +77,46 @@ def demo_run(
     return out
 
 
+@app.post("/api/demo/stream")
+async def demo_stream(body: RunBody):
+    """Server-Sent Events: ``data: {json}\\n\\n`` chunks from ``stream_latent_demo``."""
+
+    async def event_bytes():
+        t0 = time.perf_counter()
+        print(
+            f"[timing] POST /api/demo/stream start agents={body.num_agents} "
+            f"cycles={body.cycles} stagger_s={body.stagger_s}",
+            flush=True,
+        )
+        try:
+            async for chunk in stream_latent_demo(
+                body.prompt.strip(),
+                context=body.context.strip(),
+                num_agents=body.num_agents,
+                stagger_s=body.stagger_s,
+                cycles=body.cycles,
+            ):
+                if isinstance(chunk, str):
+                    yield chunk.encode("utf-8")
+                else:
+                    yield chunk
+        finally:
+            print(
+                f"[timing] POST /api/demo/stream done: {time.perf_counter() - t0:.3f}s",
+                flush=True,
+            )
+
+    return StreamingResponse(
+        event_bytes(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.get("/health")
 def health():
     return {"ok": True}

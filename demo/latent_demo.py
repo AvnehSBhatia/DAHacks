@@ -4,12 +4,13 @@ Run the real LatentSpace + AgentNetwork pipeline and export PCA visuals + raw 64
 
 from __future__ import annotations
 
+import asyncio
+import copy
 import json
 import os
 import random
 import sys
 import time
-import asyncio
 from pathlib import Path
 from typing import Any, Callable, AsyncGenerator
 
@@ -121,6 +122,204 @@ GEN_CYCLE: list[Callable[..., str]] = [
     subtle_adversarial_generate,
     adversarial_generate,
 ]
+
+
+def run_latent_demo(
+    prompt: str,
+    *,
+    context: str = "",
+    seed: int = 42,
+    num_agents: int = 10,
+    stagger_s: float = 0.5,
+    cycles: int = 1,
+) -> dict[str, Any]:
+    """
+    Multi-agent loop on shared LatentSpace; returns PCA visuals + full 64-D ``latent`` payload.
+
+    Between each ``network.run`` call we sleep ``stagger_s`` seconds (except before the first).
+    """
+    random.seed(seed)
+    torch.manual_seed(seed)
+
+    t_run = time.perf_counter()
+    _tlog(f"run_latent_demo start (agents={num_agents}, cycles={cycles}, stagger_s={stagger_s})")
+
+    enc = os.environ.get("DAHACKS_ENCODER") or _optional_ckpt("models/checkpoints/encoder_2x384_to_64.pt")
+    rnet = os.environ.get("DAHACKS_RESPONSE_NET") or _optional_ckpt("models/checkpoints/response_latent_net.pt")
+
+    t0 = time.perf_counter()
+    space = LatentSpace(
+        encoder_path=enc,
+        response_net_path=rnet,
+        eta=0.02,
+        anomaly_threshold=0.42,
+        max_anchors=500,
+        decay_k=0.002,
+    )
+    _tlog(f"LatentSpace init (encoder + models): {time.perf_counter() - t0:.3f}s")
+
+    space.set_base_vector(
+        "You are a reliable multi-agent knowledge system. Provide accurate, factual responses."
+    )
+
+    t0 = time.perf_counter()
+    network = AgentNetwork(space, update_every=5, retrieval_k=5)
+    _tlog(f"AgentNetwork construct: {time.perf_counter() - t0:.3f}s")
+
+    n = max(1, min(int(num_agents), 32))
+    use_featherless = bool(os.environ.get("FEATHERLESS_API_KEY"))
+
+    agents_spec: list[tuple[str, str, Any, bool]] = []
+    for i in range(n):
+        gen_raw = GEN_CYCLE[i % len(GEN_CYCLE)]
+        prone = gen_raw in (subtle_adversarial_generate, adversarial_generate)
+        aid = f"agent_{i}"
+
+        if use_featherless:
+            if gen_raw is honest_generate:
+                prof = AGENT_PROFILES[i % len(AGENT_PROFILES)]
+                gen = make_featherless_generate_fn(prof["system"])
+                role = f"{prof['id']}: {prof['system']}"
+            elif gen_raw is subtle_adversarial_generate:
+                gen = make_featherless_generate_fn(SUBTLE_ADVERSARIAL_SYSTEM)
+                role = AGENT_ROLES[i % len(AGENT_ROLES)]
+            else:
+                gen = make_featherless_generate_fn(ADVERSARIAL_SYSTEM)
+                role = AGENT_ROLES[i % len(AGENT_ROLES)]
+        else:
+            gen = gen_raw
+            role = AGENT_ROLES[i % len(AGENT_ROLES)]
+
+        short = role if len(role) <= 52 else f"{role[:48]}…"
+        agents_spec.append((aid, f"Agent {i} — {short}", gen, prone))
+
+    t0 = time.perf_counter()
+    for aid, role, gen, _ in agents_spec:
+        network.register(Agent(aid, role, gen))
+    _tlog(f"register {n} agents: {time.perf_counter() - t0:.3f}s")
+
+    t0 = time.perf_counter()
+    z_session = space.embed_pair_to_latent(prompt, context if context.strip() else prompt)
+    _tlog(f"session embed_pair_to_latent (prompt+context): {time.perf_counter() - t0:.3f}s")
+
+    steps_out: list[dict[str, Any]] = []
+    timeline: list[list[dict[str, Any]]] = []
+    timeline_vectors: list[list[dict[str, Any]]] = []
+
+    order = [a[0] for a in agents_spec]
+    base_v = getattr(space, "_base_vector")
+    w_start = float(torch.norm(space.ground_truth - base_v).item())
+
+    gap = max(0.0, float(stagger_s))
+    n_cycles = max(1, int(cycles))
+    first_step = True
+    step_idx = 0
+
+    for _c in range(n_cycles):
+        for aid in order:
+            if aid not in network.list_agents():
+                continue
+            if not first_step and gap > 0:
+                _tlog(f"stagger sleep: {gap:.3f}s (before agent {aid}, cycle {_c})")
+                time.sleep(gap)
+            first_step = False
+            step_idx += 1
+            t_step = time.perf_counter()
+            result = network.run(prompt, agent_id=aid, extra_context=context)
+            _tlog(
+                f"step {step_idx} cycle={_c} agent={aid} network.run total: "
+                f"{time.perf_counter() - t_step:.3f}s"
+            )
+            t_snap = time.perf_counter()
+            mem_copy = copy.deepcopy(_anchors_as_viz_rows(space))
+            _tlog(f"  deepcopy viz rows ({len(mem_copy)} anchors): {time.perf_counter() - t_snap:.3f}s")
+            t_sv = time.perf_counter()
+            sv = _snapshot_full_vectors(space)
+            _tlog(f"  snapshot full vectors: {time.perf_counter() - t_sv:.3f}s")
+            meta = next((x for x in agents_spec if x[0] == aid), (aid, aid, None, False))
+            steps_out.append(
+                {
+                    "agent": {
+                        "id": aid,
+                        "name": meta[1],
+                        "hallucination_prone": bool(meta[3]),
+                    },
+                    "action": result.output,
+                    "reward": 1.0 if not result.anomaly else -1.0,
+                    "retrieved_snippets": result.context[:3],
+                    "pulse": {"receive": True, "write": True},
+                    "w_frobenius_delta": float(result.score),
+                }
+            )
+            timeline.append(mem_copy)
+            timeline_vectors.append(sv)
+
+    t0 = time.perf_counter()
+    space.update_cycle()
+    _tlog(f"final space.update_cycle: {time.perf_counter() - t0:.3f}s")
+    w_end = float(torch.norm(space.ground_truth - base_v).item())
+
+    t0 = time.perf_counter()
+    final_rows = _anchors_as_viz_rows(space)
+    _tlog(f"final_rows anchors_as_viz: {time.perf_counter() - t0:.3f}s")
+
+    t0 = time.perf_counter()
+    pca3 = fit_pca_global_3d(final_rows, W_IDENTITY)
+    _tlog(f"fit_pca_global_3d: {time.perf_counter() - t0:.3f}s")
+
+    morph_frames: list[dict[str, Any]] = []
+    t_morph = time.perf_counter()
+    for i, mem in enumerate(timeline):
+        t_fr = time.perf_counter()
+        morph_frames.append(build_morph_snapshot_3d(mem, W_IDENTITY, pca_ref=pca3))
+        _tlog(f"  morph frame {i + 1}/{len(timeline)}: {time.perf_counter() - t_fr:.3f}s")
+    _tlog(f"morph_frames total ({len(timeline)} frames): {time.perf_counter() - t_morph:.3f}s")
+
+    t0 = time.perf_counter()
+    pca2 = fit_pca_global_2d(final_rows, W_IDENTITY)
+    _tlog(f"fit_pca_global_2d: {time.perf_counter() - t0:.3f}s")
+
+    t0 = time.perf_counter()
+    final_clusters, _ = build_cluster_snapshot_2d(
+        final_rows,
+        W_IDENTITY,
+        pca_ref=pca2,
+        k_clusters=3,
+        anomaly_threshold=2.5,
+    )
+    _tlog(f"build_cluster_snapshot_2d: {time.perf_counter() - t0:.3f}s")
+
+    t0 = time.perf_counter()
+    anchors_final = _snapshot_full_vectors(space)
+    _tlog(f"latent.anchors_final snapshot build: {time.perf_counter() - t0:.3f}s")
+
+    gt = space.ground_truth
+    base = base_v
+
+    _tlog(f"run_latent_demo done: {time.perf_counter() - t_run:.3f}s total")
+
+    return {
+        "prompt": prompt,
+        "context": context,
+        "steps": steps_out,
+        "morph_frames": morph_frames,
+        "final_clusters": final_clusters,
+        "w_frobenius_delta_start": w_start,
+        "w_frobenius_delta_end": w_end,
+        "latent": {
+            "dim": EMBED_DIM,
+            "session_z": _vec_to_list(z_session),
+            "ground_truth": _vec_to_list(gt),
+            "base_vector": _vec_to_list(base),
+            "anchors_final": anchors_final,
+            "timeline_vectors": timeline_vectors,
+            "encoder_loaded": enc is not None,
+            "response_net_loaded": rnet is not None,
+            "num_agents": n,
+            "stagger_s": gap,
+            "cycles": n_cycles,
+        },
+    }
 
 
 async def stream_latent_demo(

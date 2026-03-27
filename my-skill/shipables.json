@@ -1,0 +1,9 @@
+{
+  "version": "0.1.0",
+  "keywords": ["agents", "monitoring", "scale", "swarm", "observability", "multi-agent"],
+  "categories": ["dev-tools", "ai-infrastructure"],
+  "author": {
+    "name": "avneh",
+    "github": "AvnehSBhatia"
+  }
+}
