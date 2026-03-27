@@ -1,2 +1,6 @@
 */pycache
 **/__pycache__
+node_modules/
+frontend/dist/
+.env
+.env.local
