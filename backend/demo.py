@@ -132,6 +132,7 @@ def _featherless_chat(
 
     base_url = os.environ.get("FEATHERLESS_BASE_URL", "https://api.featherless.ai/v1")
     model = os.environ.get("FEATHERLESS_MODEL", "Qwen/Qwen3-8B")
+    budget = max_tokens if max_tokens is not None else _featherless_default_max_tokens()
 
     try:
         client = openai.OpenAI(
@@ -144,7 +145,7 @@ def _featherless_chat(
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            max_tokens=max_tokens,
+            max_tokens=budget,
         )
     except Exception as e:
         detail = _format_featherless_exception(e)
@@ -160,21 +161,29 @@ def _featherless_chat(
 
     choice0 = response.choices[0]
     msg = choice0.message
-    text = msg.content if msg is not None else None
     finish = getattr(choice0, "finish_reason", None)
+    text = _assistant_visible_text(msg)
 
-    if not text or not str(text).strip():
+    if not text:
         _last_featherless_error = (
-            f"empty message.content (finish_reason={finish!r}); "
-            "model may require a different name or API returns non-chat shape"
+            f"empty content and reasoning (finish_reason={finish!r}); "
+            "try FEATHERLESS_MAX_TOKENS=4096 or another model"
         )
         print(
-            f"[featherless] empty content model={model!r} finish_reason={finish!r} "
+            f"[featherless] empty assistant text model={model!r} finish_reason={finish!r} "
             f"message={msg!r}",
             flush=True,
         )
         return None
-    return text.strip()
+
+    c_only = (getattr(msg, "content", None) or "").strip() if msg is not None else ""
+    if not c_only and text:
+        print(
+            f"[featherless] using reasoning fallback (content empty, finish_reason={finish!r}); "
+            f"raise FEATHERLESS_MAX_TOKENS if replies truncate ({budget} tok budget)",
+            flush=True,
+        )
+    return text
 
 
 def make_featherless_generate_fn(system_prompt: str) -> Callable[[str, list[str]], str]:
