@@ -90,13 +90,23 @@ export type RunDemoBody = {
 };
 
 export async function runDemo(
+  
   prompt: string,
+  getAccessToken?: () => Promise<string>,
+
   context: string = "",
   opts?: Pick<RunDemoBody, "num_agents" | "stagger_s" | "cycles">,
 ): Promise<DemoResult> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (getAccessToken) {
+    const token = await getAccessToken();
+    headers.Authorization = `Bearer ${token}`;
+  }
   const res = await fetch("/api/demo/run", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({
       prompt,
       context,

@@ -13,19 +13,28 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# Load repo-root .env so AUTH_REQUIRED / Auth0 vars apply when using uvicorn.
+from dotenv import load_dotenv
+
+load_dotenv(ROOT / ".env")
+
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 if str(ROOT / "backend") not in sys.path:
     sys.path.insert(0, str(ROOT / "backend"))
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from demo.demo_logic import run_demo
 from demo.latent_demo import run_latent_demo, stream_latent_demo
+from demo.auth_jwt import get_demo_caller
 
 app = FastAPI(title="DAHacks Demo", version="0.2.0")
 app.add_middleware(
@@ -46,7 +55,10 @@ class RunBody(BaseModel):
 
 
 @app.post("/api/demo/run")
-def demo_run(body: RunBody):
+def demo_run(
+    body: RunBody,
+    _caller: dict[str, Any] = Depends(get_demo_caller),
+):
     """Runs shared ``LatentSpace`` + agents; returns PCA frames and full 64-D ``latent`` payload."""
     t0 = time.perf_counter()
     print(

@@ -3,6 +3,9 @@ import { ClusterScatter } from "./ClusterScatter";
 import { runDemoStream, type DemoResult } from "./api";
 import { LatentFieldViz, type InspectInfo } from "./components/LatentFieldViz";
 import { VectorDetailPanel } from "./components/VectorDetailPanel";
+import { useAuth0 } from "@auth0/auth0-react";
+import { DemoExperience } from "./DemoExperience";
+import { runDemo } from "./api";
 import "./App.css";
 
 export default function App() {
@@ -90,125 +93,120 @@ export default function App() {
   const latent = data?.latent;
 
   return (
-    <div className="app-shell">
-      <header className="app-shell__header">
-        <p className="app-shell__brand">DAHacks · Latent field</p>
-        <h1 className="app-shell__title">Evolving vector memory</h1>
-        <p className="app-shell__lede">
-          A shared <strong>64-dimensional</strong> space: agents insert anchors, ground truth acts as
-          an attractor, and weights decay smoothly. The 3D view uses a fixed PCA basis; simulation
-          integrates gravitational pull at <code className="mono">Δt = 0.001s</code> per substep
-          (rendered at display rate).
-        </p>
-      </header>
-
-      <section className="card" style={{ marginBottom: "1.75rem" }}>
-        <div className="card__inner">
-          <p className="card__title">Session</p>
-          <form onSubmit={onSubmit}>
-            <label className="form-label" htmlFor="p">
-              Prompt
-            </label>
-            <textarea
-              id="p"
-              className="textarea-field"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              rows={3}
-            />
-            <label className="form-label" htmlFor="ctx" style={{ marginTop: "0.85rem" }}>
-              Context
-            </label>
-            <textarea
-              id="ctx"
-              className="textarea-field"
-              value={context}
-              onChange={(e) => setContext(e.target.value)}
-              rows={2}
-            />
-            <div style={{ marginTop: "1.1rem" }}>
-              <button type="submit" className="btn-primary" disabled={loading || !prompt.trim()}>
-                {loading && <span className="btn-spinner" aria-hidden />}
-                {loading ? "Visualizing real-time..." : "Run & visualize (3 Agents)"}
-              </button>
-            </div>
-          </form>
-        </div>
-      </section>
-
-      {err && (
-        <p className="alert-error" role="alert">
-          {err}
-        </p>
-      )}
-
-      {!data && !loading && !err && (
-        <div className="card">
-          <div className="card__inner empty-state">
-            <p>Submit a prompt to materialize anchors and open the interactive field.</p>
-          </div>
-        </div>
-      )}
-
-      {data && latent && (
-        <>
-          <section className="card" style={{ marginBottom: "1.25rem" }}>
-            <div className="card__inner" style={{ paddingBottom: "0.85rem" }}>
-              <p className="card__title">Latent dynamics</p>
-              <p className="meta-strip">
-                <q>{data.prompt}</q>
-                {data.context ? (
-                  <>
-                    {" "}
-                    · context: <q>{data.context}</q>
-                  </>
-                ) : null}
-                <br />
-                <span className="muted">
-                  ‖GT − base‖: {data.w_frobenius_delta_start.toFixed(3)} →{" "}
-                  {data.w_frobenius_delta_end.toFixed(3)} · {latent.dim}D ·{" "}
-                  {latent.anchors_final.length} anchors · agents{" "}
-                  {latent.num_agents ?? "—"} · stagger {(latent.stagger_s ?? 0.5).toFixed(2)}s · cycles{" "}
-                  {latent.cycles ?? 1} · encoder {latent.encoder_loaded ? "on" : "off"} · response{" "}
-                  {latent.response_net_loaded ? "on" : "off"}
-                </span>
-              </p>
-            </div>
-            <div className="viz-layout" style={{ padding: "0 1.1rem 1.1rem" }}>
-              {latent.anchors_final.length > 0 ? (
-                <LatentFieldViz latent={latent} onInspect={setInspect} />
-              ) : (
-                <div className="latent-field" style={{ display: "grid", placeItems: "center" }}>
-                  <p className="detail-panel__hint">No anchors in this response.</p>
-                </div>
-              )}
-              <VectorDetailPanel
-                particle={inspect?.particle ?? null}
-                gt={latent.ground_truth}
-                position3d={inspect?.position3d ?? [0, 0, 0]}
-                neighborCos={inspect?.neighborCos ?? 0}
-                neighborId={inspect?.neighborId ?? ""}
-              />
-            </div>
-            {activeAgent && (
-              <div style={{ marginTop: "1rem", padding: "0.75rem", background: "var(--accent-soft)", border: "1px solid var(--accent)", borderRadius: "var(--radius-sm)", color: "var(--accent)", fontSize: "0.9rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <span className="btn-spinner" style={{ borderColor: "rgba(37, 99, 235, 0.3)", borderTopColor: "var(--accent)" }} />
-                <span><strong>{activeAgent.name}</strong> is generating...</span>
-              </div>
-            )}
-          </section>
-
-          <section className="subviz-dark">
-            <p className="subviz-dark__title">Final clusters · 2D PCA</p>
-            <ClusterScatter
-              snap={data.final_clusters}
-              width={720}
-              height={320}
-              title="K-means + anomaly z-scores"
-            />
-          </section>
-        </>
-      )}
+    <div className="app">
+      <DemoExperience runDemoFn={runDemoFn} />
     </div>
   );
+}
+
+function AppWithAuth() {
+  const {
+    isLoading,
+    isAuthenticated,
+    loginWithRedirect,
+    logout,
+    user,
+    getAccessTokenSilently,
+  } = useAuth0();
+
+  const audience = import.meta.env.VITE_AUTH0_AUDIENCE as string | undefined;
+
+  const getToken = useCallback(
+    () =>
+      getAccessTokenSilently({
+        authorizationParams: {
+          audience: audience ?? undefined,
+        },
+      }),
+    [audience, getAccessTokenSilently],
+  );
+
+  const runDemoFn = useCallback(
+    (prompt: string) => runDemo(prompt, getToken),
+    [getToken],
+  );
+
+  if (isLoading) {
+    return (
+      <div className="app app-auth-loading">
+        <p className="app-lede" style={{ textAlign: "center", marginTop: "2rem" }}>
+          Signing in…
+        </p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="app">
+        <header className="app-header">
+          <p className="app-kicker">DAHacks demo</p>
+          <h1 className="app-title">Shared latent memory</h1>
+          <p className="app-lede">
+            Sign in with Auth0 to run the agent pipeline. Your identity is sent as a secure
+            token with each demo request.
+          </p>
+        </header>
+        <div className="card card-glow">
+          <div className="card-inner" style={{ textAlign: "center" }}>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => loginWithRedirect()}
+            >
+              Log in
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="app app-with-auth">
+      <div className="auth-bar" role="region" aria-label="Account">
+        <span className="auth-bar-user" title={user?.sub}>
+          {user?.email ?? user?.name ?? user?.sub}
+        </span>
+        <button
+          type="button"
+          className="btn-secondary auth-bar-logout"
+          onClick={() =>
+            logout({ logoutParams: { returnTo: window.location.origin } })
+          }
+        >
+          Log out
+        </button>
+      </div>
+      <DemoExperience runDemoFn={runDemoFn} />
+    </div>
+  );
+}
+
+export default function App() {
+  const domain = import.meta.env.VITE_AUTH0_DOMAIN;
+  const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
+
+  if (domain && !clientId) {
+    return (
+      <div className="app">
+        <div className="card card-glow" style={{ marginTop: "2rem" }}>
+          <div className="card-inner">
+            <p className="section-title">Auth0 configuration</p>
+            <p className="section-desc" style={{ marginBottom: "0.75rem" }}>
+              <code>AUTH0_DOMAIN</code> is set in the repo root <code>.env</code>, but{" "}
+              <code>AUTH0_CLIENT_ID</code> is missing. Add your SPA application&apos;s Client ID
+              from Auth0 (Applications → your app → Client ID), restart{" "}
+              <code>npm run dev</code>, then log in.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (domain && clientId) {
+    return <AppWithAuth />;
+  }
+  return <AppWithoutAuth />;
 }
